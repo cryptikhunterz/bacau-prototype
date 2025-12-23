@@ -332,17 +332,23 @@ def calculate_player_zone_stats(events, player_id):
 
     Args:
         events: List of PFF events
-        player_id: Player ID to filter by
+        player_id: Player ID to filter by (can be string from kloppy)
 
     Returns dict with zones as keys, each containing event counts.
     """
     event_types = ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']
     stats = {zone: {et: 0 for et in event_types} for zone, _, _ in ZONE_BOUNDARIES}
 
+    # Convert player_id to int for comparison (kloppy uses strings, events use ints)
+    try:
+        player_id_int = int(player_id)
+    except (ValueError, TypeError):
+        return stats
+
     for event in events:
         ge = event.get('gameEvents', {})
-        # Check if this player is involved
-        if ge.get('playerId') != player_id:
+        # Check if this player is involved (compare as int)
+        if ge.get('playerId') != player_id_int:
             continue
 
         pe = event.get('possessionEvents', {})
@@ -361,6 +367,260 @@ def calculate_player_zone_stats(events, player_id):
         stats[zone][event_type] += 1
 
     return stats
+
+
+def collect_team_event_positions(events, team_name, event_type_code):
+    """
+    Collect x,y positions for all events of a specific type for a team.
+
+    Args:
+        events: List of PFF events
+        team_name: 'Germany' or 'Japan'
+        event_type_code: Event type code ('PA', 'RE', 'SH', etc.)
+
+    Returns:
+        List of (x, y) tuples normalized to 0-1 range
+    """
+    positions = []
+    team_id = TEAM_IDS.get(team_name)
+    if not team_id:
+        return positions
+
+    for event in events:
+        # Check team
+        ge = event.get('gameEvents', {})
+        if ge.get('teamId') != team_id:
+            continue
+
+        # Get possession event type
+        pe = event.get('possessionEvents', {})
+        if not pe:
+            continue
+        event_type = pe.get('possessionEventType')
+        if event_type != event_type_code:
+            continue
+
+        # Get ball position
+        ball = event.get('ball', [])
+        if not ball or len(ball) == 0:
+            continue
+
+        # PFF coordinates: BOTH x and y are centered at pitch center
+        # x ranges from -52.5 to +52.5 (centered)
+        # y ranges from -34 to +34 (centered)
+        x = ball[0].get('x', 0)  # Default to center if missing
+        y = ball[0].get('y', 0)  # Default to center if missing
+
+        # Normalize to 0-1 range (shift from centered to 0-based)
+        x_norm = (x + 52.5) / 105.0  # shift from -52.5..+52.5 to 0..105, then to 0..1
+        y_norm = (y + 34) / 68.0     # shift from -34..+34 to 0..68, then to 0..1
+
+        # Clamp to valid range
+        x_norm = max(0, min(1, x_norm))
+        y_norm = max(0, min(1, y_norm))
+
+        positions.append((x_norm, y_norm))
+
+    return positions
+
+
+def collect_player_event_positions(events, player_id, event_type_code):
+    """
+    Collect x,y positions for all events of a specific type for a player.
+
+    Args:
+        events: List of PFF events
+        player_id: Player ID to filter by (can be string from kloppy)
+        event_type_code: Event type code ('PA', 'RE', 'SH', etc.)
+
+    Returns:
+        List of (x, y) tuples normalized to 0-1 range
+    """
+    positions = []
+
+    # Convert player_id to int for comparison (kloppy uses strings, events use ints)
+    try:
+        player_id_int = int(player_id)
+    except (ValueError, TypeError):
+        return positions
+
+    for event in events:
+        ge = event.get('gameEvents', {})
+        # Check if this player is involved (compare as int)
+        if ge.get('playerId') != player_id_int:
+            continue
+
+        pe = event.get('possessionEvents', {})
+        if not pe:
+            continue
+        event_type = pe.get('possessionEventType')
+        if event_type != event_type_code:
+            continue
+
+        ball = event.get('ball', [])
+        if not ball or len(ball) == 0:
+            continue
+
+        # PFF coordinates: BOTH x and y are centered at pitch center
+        # x ranges from -52.5 to +52.5 (centered)
+        # y ranges from -34 to +34 (centered)
+        x = ball[0].get('x', 0)
+        y = ball[0].get('y', 0)
+
+        # Normalize to 0-1 range (shift from centered to 0-based)
+        x_norm = (x + 52.5) / 105.0
+        y_norm = (y + 34) / 68.0
+
+        # Clamp to valid range
+        x_norm = max(0, min(1, x_norm))
+        y_norm = max(0, min(1, y_norm))
+
+        positions.append((x_norm, y_norm))
+
+    return positions
+
+
+def filter_events_by_half(events, half_selection):
+    """
+    Filter events by match half.
+
+    Args:
+        events: List of PFF events
+        half_selection: "Full Match", "1st Half", or "2nd Half"
+
+    Returns:
+        Filtered list of events
+    """
+    if half_selection == "Full Match":
+        return events
+
+    filtered = []
+    for event in events:
+        # Period is in gameEvents.period (1 = 1st half, 2 = 2nd half)
+        ge = event.get('gameEvents', {})
+        period = ge.get('period')
+
+        if half_selection == "1st Half" and period == 1:
+            filtered.append(event)
+        elif half_selection == "2nd Half" and period == 2:
+            filtered.append(event)
+
+    return filtered
+
+
+def draw_event_scatter(positions, title, team_color='#FFFFFF'):
+    """
+    Draw a football pitch with event locations as scatter dots.
+
+    Args:
+        positions: List of (x, y) tuples in normalized 0-1 coordinates
+        title: Chart title
+        team_color: Color for dots
+
+    Returns matplotlib figure
+    """
+    fig, ax = plt.subplots(figsize=(12, 7))
+    fig.patch.set_facecolor(BACKGROUND_COLOR)
+
+    # Pitch dimensions (normalized 0-1)
+    pitch_color = '#2d5a27'
+    line_color = 'white'
+    lw = 2
+
+    ax.set_facecolor(pitch_color)
+    ax.set_xlim(-0.08, 1.08)
+    ax.set_ylim(-0.12, 1.08)
+
+    # === PITCH MARKINGS ===
+
+    # Outer boundary
+    ax.plot([0, 1, 1, 0, 0], [0, 0, 1, 1, 0], color=line_color, linewidth=lw, zorder=2)
+
+    # Halfway line
+    ax.plot([0.5, 0.5], [0, 1], color=line_color, linewidth=lw, zorder=2)
+
+    # Center circle (radius ~9.15m on 105m pitch = ~0.087)
+    center_circle = plt.Circle((0.5, 0.5), 0.087, fill=False, color=line_color, linewidth=lw, zorder=2)
+    ax.add_patch(center_circle)
+
+    # Center spot
+    ax.scatter(0.5, 0.5, color=line_color, s=30, zorder=3)
+
+    # Penalty areas
+    pa_depth = 0.157  # 16.5m / 105m
+    pa_y_start = (1 - 0.593) / 2
+    pa_y_end = 1 - pa_y_start
+
+    # Left penalty area
+    ax.plot([0, pa_depth], [pa_y_start, pa_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([pa_depth, pa_depth], [pa_y_start, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([pa_depth, 0], [pa_y_end, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Right penalty area
+    ax.plot([1, 1 - pa_depth], [pa_y_start, pa_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - pa_depth, 1 - pa_depth], [pa_y_start, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - pa_depth, 1], [pa_y_end, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Goal areas
+    ga_depth = 0.052  # 5.5m / 105m
+    ga_y_start = (1 - 0.269) / 2
+    ga_y_end = 1 - ga_y_start
+
+    # Left goal area
+    ax.plot([0, ga_depth], [ga_y_start, ga_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([ga_depth, ga_depth], [ga_y_start, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([ga_depth, 0], [ga_y_end, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Right goal area
+    ax.plot([1, 1 - ga_depth], [ga_y_start, ga_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - ga_depth, 1 - ga_depth], [ga_y_start, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - ga_depth, 1], [ga_y_end, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Goals
+    goal_width = 0.108
+    goal_depth = 0.02
+    goal_y_start = (1 - goal_width) / 2
+    goal_y_end = 1 - goal_y_start
+
+    # Left goal
+    ax.plot([0, -goal_depth], [goal_y_start, goal_y_start], color=line_color, linewidth=3, zorder=2)
+    ax.plot([-goal_depth, -goal_depth], [goal_y_start, goal_y_end], color=line_color, linewidth=3, zorder=2)
+    ax.plot([-goal_depth, 0], [goal_y_end, goal_y_end], color=line_color, linewidth=3, zorder=2)
+
+    # Right goal
+    ax.plot([1, 1 + goal_depth], [goal_y_start, goal_y_start], color=line_color, linewidth=3, zorder=2)
+    ax.plot([1 + goal_depth, 1 + goal_depth], [goal_y_start, goal_y_end], color=line_color, linewidth=3, zorder=2)
+    ax.plot([1 + goal_depth, 1], [goal_y_end, goal_y_end], color=line_color, linewidth=3, zorder=2)
+
+    # Penalty spots
+    ax.scatter(0.105, 0.5, color=line_color, s=20, zorder=3)
+    ax.scatter(1 - 0.105, 0.5, color=line_color, s=20, zorder=3)
+
+    # === SCATTER DOTS ===
+    if positions:
+        xs = [p[0] for p in positions]
+        ys = [p[1] for p in positions]
+        ax.scatter(xs, ys, c=team_color, s=50, alpha=0.6, edgecolors='white',
+                   linewidths=0.5, zorder=5)
+
+    # Count label
+    count = len(positions)
+    ax.text(0.5, -0.07, f"{count} events",
+            ha='center', va='top', color='white', fontsize=12, fontweight='bold')
+
+    # Goal labels
+    ax.text(-0.04, 0.5, 'GOAL', ha='center', va='center', color='#888888',
+            fontsize=9, fontweight='bold', rotation=90)
+    ax.text(1.04, 0.5, 'GOAL', ha='center', va='center', color='#888888',
+            fontsize=9, fontweight='bold', rotation=90)
+
+    # Title
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=15)
+    ax.axis('off')
+    ax.set_aspect('equal')
+
+    plt.tight_layout()
+    return fig
 
 
 def create_zone_bar_chart(stats, title, team_color='#3498db'):
@@ -1062,8 +1322,8 @@ with tab_shape:
 
 # Zone Analysis Tab
 with tab_zones:
-    st.subheader("Zone-Based Event Analysis")
-    st.caption("Events distributed across tactical zones (Left Wing → Right Wing). Darker zones = more events.")
+    st.subheader("Event Location Analysis")
+    st.caption("Scatter plot showing where events happen on the pitch. Each dot = one event location.")
 
     # Load events for zone analysis
     events = load_events()
@@ -1074,8 +1334,12 @@ with tab_zones:
     with zone_col1:
         st.markdown(f"### {home_name}")
 
-        # Team zone stats
-        home_zone_stats = calculate_zone_stats(events, home_name)
+        # Half selector for team section
+        team_half_home = st.selectbox(
+            "Half",
+            options=["Full Match", "1st Half", "2nd Half"],
+            key="home_team_half"
+        )
 
         # Team event selector
         team_event_home = st.selectbox(
@@ -1085,9 +1349,14 @@ with tab_zones:
         )
         team_event_code_home = EVENT_TYPE_OPTIONS[team_event_home]
 
-        # Team zone pitch visualization
-        fig_home = draw_zone_pitch(home_zone_stats, team_event_code_home,
-                                   f"{home_name} - {team_event_home}s by Zone", team_color='#3498db')
+        # Filter events by half selection
+        filtered_events_home_team = filter_events_by_half(events, team_half_home)
+
+        # Collect event positions and draw scatter plot
+        home_positions = collect_team_event_positions(filtered_events_home_team, home_name, team_event_code_home)
+        fig_home = draw_event_scatter(home_positions,
+                                      f"{home_name} - {team_event_home}s",
+                                      team_color='#FFFFFF')  # White for Germany
         st.pyplot(fig_home)
         plt.close(fig_home)
 
@@ -1113,6 +1382,13 @@ with tab_zones:
                 key="home_player_select"
             )
 
+            # Half selector for player section (independent from team half)
+            player_half_home = st.selectbox(
+                "Half",
+                options=["Full Match", "1st Half", "2nd Half"],
+                key="home_player_half"
+            )
+
             # Player event selector (independent from team)
             player_event_home = st.selectbox(
                 "Player Event Type",
@@ -1121,19 +1397,27 @@ with tab_zones:
             )
             player_event_code_home = EVENT_TYPE_OPTIONS[player_event_home]
 
+            # Filter events by half selection
+            filtered_events_home_player = filter_events_by_half(events, player_half_home)
+
             if selected_home:
-                player_stats = calculate_player_zone_stats(events, selected_home)
+                player_positions = collect_player_event_positions(filtered_events_home_player, selected_home, player_event_code_home)
                 player_name = next((p[1] for p in home_players if p[0] == selected_home), "Player")
-                fig_player = draw_zone_pitch(player_stats, player_event_code_home,
-                                            f"{player_name} - {player_event_home}s", team_color='#3498db')
+                fig_player = draw_event_scatter(player_positions,
+                                                f"{player_name} - {player_event_home}s",
+                                                team_color='#FFFFFF')  # White for Germany
                 st.pyplot(fig_player)
                 plt.close(fig_player)
 
     with zone_col2:
         st.markdown(f"### {away_name}")
 
-        # Team zone stats
-        away_zone_stats = calculate_zone_stats(events, away_name)
+        # Half selector for team section
+        team_half_away = st.selectbox(
+            "Half",
+            options=["Full Match", "1st Half", "2nd Half"],
+            key="away_team_half"
+        )
 
         # Team event selector
         team_event_away = st.selectbox(
@@ -1143,9 +1427,14 @@ with tab_zones:
         )
         team_event_code_away = EVENT_TYPE_OPTIONS[team_event_away]
 
-        # Team zone pitch visualization
-        fig_away = draw_zone_pitch(away_zone_stats, team_event_code_away,
-                                   f"{away_name} - {team_event_away}s by Zone", team_color='#e74c3c')
+        # Filter events by half selection
+        filtered_events_away_team = filter_events_by_half(events, team_half_away)
+
+        # Collect event positions and draw scatter plot
+        away_positions = collect_team_event_positions(filtered_events_away_team, away_name, team_event_code_away)
+        fig_away = draw_event_scatter(away_positions,
+                                      f"{away_name} - {team_event_away}s",
+                                      team_color='#0066CC')  # Blue for Japan
         st.pyplot(fig_away)
         plt.close(fig_away)
 
@@ -1171,6 +1460,13 @@ with tab_zones:
                 key="away_player_select"
             )
 
+            # Half selector for player section (independent from team half)
+            player_half_away = st.selectbox(
+                "Half",
+                options=["Full Match", "1st Half", "2nd Half"],
+                key="away_player_half"
+            )
+
             # Player event selector (independent from team)
             player_event_away = st.selectbox(
                 "Player Event Type",
@@ -1179,11 +1475,15 @@ with tab_zones:
             )
             player_event_code_away = EVENT_TYPE_OPTIONS[player_event_away]
 
+            # Filter events by half selection
+            filtered_events_away_player = filter_events_by_half(events, player_half_away)
+
             if selected_away:
-                player_stats = calculate_player_zone_stats(events, selected_away)
+                player_positions = collect_player_event_positions(filtered_events_away_player, selected_away, player_event_code_away)
                 player_name = next((p[1] for p in away_players if p[0] == selected_away), "Player")
-                fig_player = draw_zone_pitch(player_stats, player_event_code_away,
-                                            f"{player_name} - {player_event_away}s", team_color='#e74c3c')
+                fig_player = draw_event_scatter(player_positions,
+                                                f"{player_name} - {player_event_away}s",
+                                                team_color='#0066CC')  # Blue for Japan
                 st.pyplot(fig_player)
                 plt.close(fig_player)
 

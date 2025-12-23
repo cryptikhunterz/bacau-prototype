@@ -11,6 +11,7 @@ Real-time football/soccer tracking visualization with team shape analysis, power
 - **Player Rosters**: Full player lists with jersey numbers
 - **Autoplay**: Frame-by-frame animation with adjustable speed
 - **Formation Detection**: Automatic formation pattern recognition
+- **Zone Analysis**: Scatter plot visualization of event locations with team/player/half filtering
 
 ## Demo Match
 
@@ -123,7 +124,8 @@ shape-graph-animation/
 │   ├── pff_data_integration.md
 │   ├── tracking_stats.md
 │   ├── event_sync.md
-│   └── streamlit_patterns.md
+│   ├── streamlit_patterns.md
+│   └── zone_analysis.md
 └── requirements.txt
 ```
 
@@ -134,6 +136,7 @@ shape-graph-animation/
 - [Tracking Stats Calculation](docs/tracking_stats.md)
 - [Event Synchronization](docs/event_sync.md)
 - [Streamlit Patterns](docs/streamlit_patterns.md)
+- [Zone Analysis](docs/zone_analysis.md)
 
 ## Dependencies
 
