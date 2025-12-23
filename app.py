@@ -299,7 +299,6 @@ with col2:
 add_debug(f"auto_play={auto_play}, current_frame={current_frame}")
 
 if auto_play:
-    # No artificial sleep - let rendering determine speed
     # Higher speed = skip more frames (speed is frames per update)
     old_frame = st.session_state.current_frame
     new_frame = (old_frame + speed) % len(dataset.frames)
@@ -308,6 +307,9 @@ if auto_play:
 
     # Log advancement
     st.session_state.log.append(f"[Autoplay] Frame {old_frame} -> {new_frame}")
+
+    # Minimum delay for UI responsiveness (lets browser process events)
+    time.sleep(0.05)
 
     add_debug("Calling st.rerun()")
     st.rerun()
