@@ -224,6 +224,29 @@ def load_events():
         return []
 
 
+# Event type mappings (PFF abbreviations to full names)
+POSSESSION_EVENT_NAMES = {
+    'PA': 'Pass',
+    'IT': 'Interception',
+    'CH': 'Challenge',
+    'RE': 'Reception',
+    'CL': 'Clearance',
+    'CR': 'Cross',
+    'TC': 'Tackle',
+    'SH': 'Shot',
+    'BC': 'Ball Control',
+}
+
+GAME_EVENT_NAMES = {
+    'OTB': 'On Ball',
+    'OUT': 'Out of Play',
+    'SUB': 'Substitution',
+    'END': 'Period End',
+    'FIRSTKICKOFF': 'Kickoff (1H)',
+    'SECONDKICKOFF': 'Kickoff (2H)',
+}
+
+
 def get_events_near_time(events, video_time, window_seconds=5):
     """Get events within window_seconds of the given video time."""
     nearby = []
@@ -232,11 +255,13 @@ def get_events_near_time(events, video_time, window_seconds=5):
         if abs(event_time - video_time) <= window_seconds:
             ge = e.get('gameEvents', {})
             pe = e.get('possessionEvents', {})
+            poss_code = pe.get('possessionEventType') if pe else None
             nearby.append({
                 'time': event_time,
                 'game_clock': ge.get('startFormattedGameClock', '??:??'),
                 'event_type': ge.get('gameEventType', 'Unknown'),
-                'poss_type': pe.get('possessionEventType') if pe else None,
+                'poss_type': poss_code,
+                'poss_name': POSSESSION_EVENT_NAMES.get(poss_code, poss_code) if poss_code else None,
                 'player': ge.get('playerName', 'Unknown'),
                 'team': ge.get('teamName', 'Unknown'),
                 'target': pe.get('targetPlayerName') if pe else None
@@ -531,6 +556,26 @@ with stats_col:
 with events_col:
     st.markdown("##### Event Log (PFF)")
 
+    # Event legend expander
+    with st.expander("Event Legend", expanded=False):
+        legend_cols = st.columns(2)
+        with legend_cols[0]:
+            st.markdown("""
+**Ball Actions:**
+- **Pass** - Ball passed to teammate
+- **Cross** - Ball crossed into box
+- **Shot** - Shot on goal
+- **Clearance** - Defensive clear
+""")
+        with legend_cols[1]:
+            st.markdown("""
+**Defensive:**
+- **Interception** - Ball won
+- **Tackle** - Ball tackled away
+- **Challenge** - 50/50 duel
+- **Reception** - Ball received
+""")
+
     # Load events
     events = load_events()
 
@@ -547,8 +592,7 @@ with events_col:
 
     if nearby_events:
         for evt in nearby_events[-8:]:  # Show last 8 events
-            evt_type = evt['event_type']
-            poss_type = evt['poss_type'] or ''
+            poss_name = evt['poss_name'] or ''
             player = evt['player']
             team = evt['team']
             clock = evt['game_clock']
@@ -562,10 +606,10 @@ with events_col:
             else:
                 color = '#888'
 
-            # Format event string
+            # Format event string with full name
             evt_str = f"[{clock}] "
-            if poss_type:
-                evt_str += f"{poss_type}: "
+            if poss_name:
+                evt_str += f"**{poss_name}**: "
             evt_str += f"<span style='color:{color}'>{player}</span>"
             if target:
                 evt_str += f" → {target}"
