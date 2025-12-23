@@ -326,6 +326,139 @@ def calculate_zone_stats(events, team_name):
     return stats
 
 
+def calculate_player_zone_stats(events, player_id):
+    """
+    Calculate zone-based stats for a specific player.
+
+    Args:
+        events: List of PFF events
+        player_id: Player ID to filter by
+
+    Returns dict with zones as keys, each containing event counts.
+    """
+    event_types = ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']
+    stats = {zone: {et: 0 for et in event_types} for zone, _, _ in ZONE_BOUNDARIES}
+
+    for event in events:
+        ge = event.get('gameEvents', {})
+        # Check if this player is involved
+        if ge.get('playerId') != player_id:
+            continue
+
+        pe = event.get('possessionEvents', {})
+        if not pe:
+            continue
+        event_type = pe.get('possessionEventType')
+        if event_type not in event_types:
+            continue
+
+        ball = event.get('ball', [])
+        if not ball or len(ball) == 0:
+            continue
+        y = ball[0].get('y', 0)
+
+        zone = get_zone(y)
+        stats[zone][event_type] += 1
+
+    return stats
+
+
+def create_zone_bar_chart(stats, title, team_color='#3498db'):
+    """
+    Create a horizontal bar chart showing events by zone.
+
+    Args:
+        stats: Zone stats dict from calculate_zone_stats or calculate_player_zone_stats
+        title: Chart title
+        team_color: Color for bars
+
+    Returns matplotlib figure
+    """
+    zones = ['LW', 'LHS', 'C', 'RHS', 'RW']
+    event_labels = ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']
+    event_names = ['Pass', 'Reception', 'Shot', 'Tackle', 'Challenge', 'Intercept', 'Clearance', 'Cross']
+
+    fig, axes = plt.subplots(2, 4, figsize=(12, 6))
+    fig.patch.set_facecolor(BACKGROUND_COLOR)
+    fig.suptitle(title, fontsize=14, fontweight='bold', color='white')
+
+    for idx, (et, et_name) in enumerate(zip(event_labels, event_names)):
+        ax = axes[idx // 4, idx % 4]
+        ax.set_facecolor(BACKGROUND_COLOR)
+
+        values = [stats[z][et] for z in zones]
+        bars = ax.barh(zones, values, color=team_color, alpha=0.8)
+
+        ax.set_title(et_name, fontsize=10, color='white')
+        ax.tick_params(axis='both', colors='white', labelsize=8)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_color('white')
+        ax.spines['left'].set_color('white')
+
+        # Add value labels
+        for bar, val in zip(bars, values):
+            if val > 0:
+                ax.text(val + 0.5, bar.get_y() + bar.get_height()/2, str(val),
+                       va='center', fontsize=8, color='white')
+
+    plt.tight_layout()
+    return fig
+
+
+def create_zone_heatmap(stats, title, team_color='#3498db'):
+    """
+    Create a compact zone summary heatmap.
+
+    Args:
+        stats: Zone stats dict
+        title: Chart title
+        team_color: Base color for heatmap
+
+    Returns matplotlib figure
+    """
+    zones = ['LW', 'LHS', 'C', 'RHS', 'RW']
+    event_labels = ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']
+    event_names = ['Pass', 'Recept', 'Shot', 'Tackle', 'Chall', 'Interc', 'Clear', 'Cross']
+
+    # Build data matrix
+    data = np.array([[stats[z][et] for z in zones] for et in event_labels])
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor(BACKGROUND_COLOR)
+    ax.set_facecolor(BACKGROUND_COLOR)
+
+    # Create heatmap with team color
+    from matplotlib.colors import LinearSegmentedColormap
+    colors = [BACKGROUND_COLOR, team_color]
+    cmap = LinearSegmentedColormap.from_list('custom', colors)
+
+    im = ax.imshow(data, cmap=cmap, aspect='auto')
+
+    # Labels
+    ax.set_xticks(np.arange(len(zones)))
+    ax.set_yticks(np.arange(len(event_names)))
+    ax.set_xticklabels(zones, color='white', fontsize=10)
+    ax.set_yticklabels(event_names, color='white', fontsize=9)
+
+    # Add text annotations
+    for i in range(len(event_names)):
+        for j in range(len(zones)):
+            val = data[i, j]
+            text_color = 'white' if val > data.max() * 0.3 else '#888888'
+            ax.text(j, i, str(val), ha='center', va='center',
+                   color=text_color, fontsize=9, fontweight='bold')
+
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=10)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+
+    plt.tight_layout()
+    return fig
+
+
 def print_zone_stats_summary(events):
     """Print zone stats to console for verification."""
     print("\n" + "="*60)
@@ -591,129 +724,132 @@ with st.sidebar:
     st.metric("FPS", f"{pm['fps']:.1f}")
     st.caption(f"Extract: {pm['extract']:.1f}ms | Render: {pm['render']:.1f}ms | Display: {pm['display']:.1f}ms")
 
-# Main content
-col1, col2 = st.columns([3, 1])
+# Main content with tabs
+tab_shape, tab_zones = st.tabs(["📊 Shape Graph", "🎯 Zone Analysis"])
 
-# Use current_frame from session state
-current_frame = st.session_state.current_frame
-add_debug(f"render_frame() called with frame={current_frame}")
+with tab_shape:
+    col1, col2 = st.columns([3, 1])
 
-with col1:
-    # Time: Data extraction
-    t0 = time.perf_counter()
-    frame = dataset.frames[current_frame]
-    frame_data = extract_positions(frame)
-    ball_pos = get_ball_position(frame) if show_ball else None
-    possession = get_possession(frame)
-    t1 = time.perf_counter()
-    extract_ms = (t1 - t0) * 1000
+    # Use current_frame from session state
+    current_frame = st.session_state.current_frame
+    add_debug(f"render_frame() called with frame={current_frame}")
 
-    # Time: Matplotlib render
-    fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession, show_zones)
-    t2 = time.perf_counter()
-    render_ms = (t2 - t1) * 1000
+    with col1:
+        # Time: Data extraction
+        t0 = time.perf_counter()
+        frame = dataset.frames[current_frame]
+        frame_data = extract_positions(frame)
+        ball_pos = get_ball_position(frame) if show_ball else None
+        possession = get_possession(frame)
+        t1 = time.perf_counter()
+        extract_ms = (t1 - t0) * 1000
 
-    # Time: Streamlit display
-    st.pyplot(fig)
-    plt.close(fig)
-    t3 = time.perf_counter()
-    display_ms = (t3 - t2) * 1000
+        # Time: Matplotlib render
+        fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession, show_zones)
+        t2 = time.perf_counter()
+        render_ms = (t2 - t1) * 1000
 
-    total_ms = (t3 - t0) * 1000
-    fps = 1000 / total_ms if total_ms > 0 else 0
+        # Time: Streamlit display
+        st.pyplot(fig)
+        plt.close(fig)
+        t3 = time.perf_counter()
+        display_ms = (t3 - t2) * 1000
 
-    # Store metrics
-    st.session_state.perf_metrics = {
-        'extract': extract_ms,
-        'render': render_ms,
-        'display': display_ms,
-        'total': total_ms,
-        'fps': fps
-    }
+        total_ms = (t3 - t0) * 1000
+        fps = 1000 / total_ms if total_ms > 0 else 0
 
-with col2:
-    st.subheader("Activity Log")
+        # Store metrics
+        st.session_state.perf_metrics = {
+            'extract': extract_ms,
+            'render': render_ms,
+            'display': display_ms,
+            'total': total_ms,
+            'fps': fps
+        }
 
-    # Add current frame to log with possession (avoid duplicates)
-    poss_str = possession.upper() if possession else "N/A"
-    log_entry = f"Frame {current_frame} | Poss: {poss_str}"
-    if not st.session_state.log or st.session_state.log[-1] != log_entry:
-        st.session_state.log.append(log_entry)
-        if len(st.session_state.log) > 50:
-            st.session_state.log = st.session_state.log[-50:]
+    with col2:
+        st.subheader("Activity Log")
 
-    # Display log
-    log_html = "<div class='log-container'>"
-    for entry in reversed(st.session_state.log[-20:]):
-        log_html += f"<div>{entry}</div>"
-    log_html += "</div>"
-    st.markdown(log_html, unsafe_allow_html=True)
+        # Add current frame to log with possession (avoid duplicates)
+        poss_str = possession.upper() if possession else "N/A"
+        log_entry = f"Frame {current_frame} | Poss: {poss_str}"
+        if not st.session_state.log or st.session_state.log[-1] != log_entry:
+            st.session_state.log.append(log_entry)
+            if len(st.session_state.log) > 50:
+                st.session_state.log = st.session_state.log[-50:]
 
-    # Debug Trace panel
-    with st.expander("Debug Trace", expanded=False):
-        debug_html = "<div class='log-container'>"
-        for entry in reversed(st.session_state.debug_log[-30:]):
-            debug_html += f"<div style='color:#888;'>{entry}</div>"
-        debug_html += "</div>"
-        st.markdown(debug_html, unsafe_allow_html=True)
+        # Display log
+        log_html = "<div class='log-container'>"
+        for entry in reversed(st.session_state.log[-20:]):
+            log_html += f"<div>{entry}</div>"
+        log_html += "</div>"
+        st.markdown(log_html, unsafe_allow_html=True)
 
-# Stats and Events Panel
-st.markdown("---")
-st.subheader("Match Analysis")
+        # Debug Trace panel
+        with st.expander("Debug Trace", expanded=False):
+            debug_html = "<div class='log-container'>"
+            for entry in reversed(st.session_state.debug_log[-30:]):
+                debug_html += f"<div style='color:#888;'>{entry}</div>"
+            debug_html += "</div>"
+            st.markdown(debug_html, unsafe_allow_html=True)
 
-stats_col, events_col = st.columns(2)
+    # Stats and Events Panel
+    st.markdown("---")
+    st.subheader("Match Analysis")
 
-with stats_col:
-    st.markdown("##### Team Shape Statistics")
+    stats_col, events_col = st.columns(2)
 
-    # Compute stats for both teams
-    home_stats = compute_team_stats(frame_data.get('home', {}))
-    away_stats = compute_team_stats(frame_data.get('away', {}))
+    with stats_col:
+        st.markdown("##### Team Shape Statistics")
 
-    # Ball carrier info
-    carrier, carrier_team, carrier_dist = get_ball_carrier(frame)
+        # Compute stats for both teams
+        home_stats = compute_team_stats(frame_data.get('home', {}))
+        away_stats = compute_team_stats(frame_data.get('away', {}))
 
-    # Create comparison metrics
-    metric_col1, metric_col2 = st.columns(2)
+        # Ball carrier info
+        carrier, carrier_team, carrier_dist = get_ball_carrier(frame)
 
-    with metric_col1:
-        st.markdown(f"**{home_name}**")
-        st.metric("Area", f"{home_stats['area']:.0f} m²")
-        st.metric("Compactness", f"{home_stats['compactness']:.1f} m")
-        st.metric("Width", f"{home_stats['width']:.1f} m")
-        st.metric("Depth", f"{home_stats['depth']:.1f} m")
+        # Create comparison metrics
+        metric_col1, metric_col2 = st.columns(2)
 
-    with metric_col2:
-        st.markdown(f"**{away_name}**")
-        st.metric("Area", f"{away_stats['area']:.0f} m²")
-        st.metric("Compactness", f"{away_stats['compactness']:.1f} m")
-        st.metric("Width", f"{away_stats['width']:.1f} m")
-        st.metric("Depth", f"{away_stats['depth']:.1f} m")
+        with metric_col1:
+            st.markdown(f"**{home_name}**")
+            st.metric("Area", f"{home_stats['area']:.0f} m²")
+            st.metric("Compactness", f"{home_stats['compactness']:.1f} m")
+            st.metric("Width", f"{home_stats['width']:.1f} m")
+            st.metric("Depth", f"{home_stats['depth']:.1f} m")
 
-    # Ball carrier
-    if carrier:
-        carrier_color = '#3498db' if carrier_team == 'home' else '#e74c3c'
-        team_name_display = home_name if carrier_team == 'home' else away_name
-        st.markdown(f"**Ball Carrier:** <span style='color:{carrier_color}'>{carrier}</span> ({team_name_display}) - {carrier_dist:.1f}m from ball", unsafe_allow_html=True)
-    else:
-        st.markdown("**Ball Carrier:** _None (ball loose)_")
+        with metric_col2:
+            st.markdown(f"**{away_name}**")
+            st.metric("Area", f"{away_stats['area']:.0f} m²")
+            st.metric("Compactness", f"{away_stats['compactness']:.1f} m")
+            st.metric("Width", f"{away_stats['width']:.1f} m")
+            st.metric("Depth", f"{away_stats['depth']:.1f} m")
 
-with events_col:
-    st.markdown("##### Event Log (PFF)")
+        # Ball carrier
+        if carrier:
+            carrier_color = '#3498db' if carrier_team == 'home' else '#e74c3c'
+            team_name_display = home_name if carrier_team == 'home' else away_name
+            st.markdown(f"**Ball Carrier:** <span style='color:{carrier_color}'>{carrier}</span> ({team_name_display}) - {carrier_dist:.1f}m from ball", unsafe_allow_html=True)
+        else:
+            st.markdown("**Ball Carrier:** _None (ball loose)_")
 
-    # Event legend expander
-    with st.expander("Event Legend", expanded=False):
-        legend_cols = st.columns(2)
-        with legend_cols[0]:
-            st.markdown("""
+    with events_col:
+        st.markdown("##### Event Log (PFF)")
+
+        # Event legend expander
+        with st.expander("Event Legend", expanded=False):
+            legend_cols = st.columns(2)
+            with legend_cols[0]:
+                st.markdown("""
 **Ball Actions:**
 - **Pass** - Ball passed to teammate
 - **Cross** - Ball crossed into box
 - **Shot** - Shot on goal
 - **Clearance** - Defensive clear
 """)
-        with legend_cols[1]:
-            st.markdown("""
+            with legend_cols[1]:
+                st.markdown("""
 **Defensive:**
 - **Interception** - Ball won
 - **Tackle** - Ball tackled away
@@ -721,50 +857,127 @@ with events_col:
 - **Reception** - Ball received
 """)
 
-    # Load events
+        # Load events
+        events = load_events()
+
+        # Calculate video time from frame index
+        # PFF uses 29.97 fps, with startPeriod1 offset
+        fps = 29.97
+        start_period1 = 118.719  # From metadata for game 3821
+        video_time = start_period1 + (current_frame / fps)
+
+        # Get nearby events (within 3 seconds)
+        nearby_events = get_events_near_time(events, video_time, window_seconds=3)
+
+        st.caption(f"Video time: {video_time:.1f}s | Frame: {current_frame}")
+
+        if nearby_events:
+            for evt in nearby_events[-8:]:  # Show last 8 events
+                poss_name = evt['poss_name'] or ''
+                player = evt['player']
+                team = evt['team']
+                clock = evt['game_clock']
+                target = evt['target']
+
+                # Color by team
+                if team == home_name or team == default_home:
+                    color = '#3498db'
+                elif team == away_name or team == default_away:
+                    color = '#e74c3c'
+                else:
+                    color = '#888'
+
+                # Format event string with full name
+                evt_str = f"[{clock}] "
+                if poss_name:
+                    evt_str += f"**{poss_name}**: "
+                evt_str += f"<span style='color:{color}'>{player}</span>"
+                if target:
+                    evt_str += f" → {target}"
+
+                st.markdown(evt_str, unsafe_allow_html=True)
+        else:
+            st.caption("_No events near current time_")
+
+        # Show total events for reference
+        st.caption(f"Total events in match: {len(events)}")
+
+# Zone Analysis Tab
+with tab_zones:
+    st.subheader("Zone-Based Event Analysis")
+    st.caption("Events distributed across tactical zones (Left Wing → Right Wing)")
+
+    # Load events for zone analysis
     events = load_events()
 
-    # Calculate video time from frame index
-    # PFF uses 29.97 fps, with startPeriod1 offset
-    fps = 29.97
-    start_period1 = 118.719  # From metadata for game 3821
-    video_time = start_period1 + (current_frame / fps)
+    # Team columns
+    zone_col1, zone_col2 = st.columns(2)
 
-    # Get nearby events (within 3 seconds)
-    nearby_events = get_events_near_time(events, video_time, window_seconds=3)
+    with zone_col1:
+        st.markdown(f"### {home_name}")
 
-    st.caption(f"Video time: {video_time:.1f}s | Frame: {current_frame}")
+        # Team zone heatmap
+        home_zone_stats = calculate_zone_stats(events, home_name)
+        fig_home = create_zone_heatmap(home_zone_stats, f"{home_name} Zone Activity", team_color='#3498db')
+        st.pyplot(fig_home)
+        plt.close(fig_home)
 
-    if nearby_events:
-        for evt in nearby_events[-8:]:  # Show last 8 events
-            poss_name = evt['poss_name'] or ''
-            player = evt['player']
-            team = evt['team']
-            clock = evt['game_clock']
-            target = evt['target']
+        # Player selector
+        st.markdown("#### Player Analysis")
+        home_players = []
+        if dataset.metadata.teams:
+            for player in dataset.metadata.teams[0].players:
+                jersey = player.jersey_no if hasattr(player, 'jersey_no') else "?"
+                name = player.name if hasattr(player, 'name') else str(player.player_id)
+                pid = player.player_id if hasattr(player, 'player_id') else None
+                home_players.append((pid, f"#{jersey} {name}"))
 
-            # Color by team
-            if team == home_name or team == default_home:
-                color = '#3498db'
-            elif team == away_name or team == default_away:
-                color = '#e74c3c'
-            else:
-                color = '#888'
+        if home_players:
+            selected_home = st.selectbox(
+                "Select Player",
+                options=[p[0] for p in home_players],
+                format_func=lambda x: next((p[1] for p in home_players if p[0] == x), str(x)),
+                key="home_player_select"
+            )
+            if selected_home:
+                player_stats = calculate_player_zone_stats(events, selected_home)
+                player_name = next((p[1] for p in home_players if p[0] == selected_home), "Player")
+                fig_player = create_zone_heatmap(player_stats, f"{player_name} Zones", team_color='#3498db')
+                st.pyplot(fig_player)
+                plt.close(fig_player)
 
-            # Format event string with full name
-            evt_str = f"[{clock}] "
-            if poss_name:
-                evt_str += f"**{poss_name}**: "
-            evt_str += f"<span style='color:{color}'>{player}</span>"
-            if target:
-                evt_str += f" → {target}"
+    with zone_col2:
+        st.markdown(f"### {away_name}")
 
-            st.markdown(evt_str, unsafe_allow_html=True)
-    else:
-        st.caption("_No events near current time_")
+        # Team zone heatmap
+        away_zone_stats = calculate_zone_stats(events, away_name)
+        fig_away = create_zone_heatmap(away_zone_stats, f"{away_name} Zone Activity", team_color='#e74c3c')
+        st.pyplot(fig_away)
+        plt.close(fig_away)
 
-    # Show total events for reference
-    st.caption(f"Total events in match: {len(events)}")
+        # Player selector
+        st.markdown("#### Player Analysis")
+        away_players = []
+        if dataset.metadata.teams and len(dataset.metadata.teams) > 1:
+            for player in dataset.metadata.teams[1].players:
+                jersey = player.jersey_no if hasattr(player, 'jersey_no') else "?"
+                name = player.name if hasattr(player, 'name') else str(player.player_id)
+                pid = player.player_id if hasattr(player, 'player_id') else None
+                away_players.append((pid, f"#{jersey} {name}"))
+
+        if away_players:
+            selected_away = st.selectbox(
+                "Select Player",
+                options=[p[0] for p in away_players],
+                format_func=lambda x: next((p[1] for p in away_players if p[0] == x), str(x)),
+                key="away_player_select"
+            )
+            if selected_away:
+                player_stats = calculate_player_zone_stats(events, selected_away)
+                player_name = next((p[1] for p in away_players if p[0] == selected_away), "Player")
+                fig_player = create_zone_heatmap(player_stats, f"{player_name} Zones", team_color='#e74c3c')
+                st.pyplot(fig_player)
+                plt.close(fig_player)
 
 # Auto-play logic
 add_debug(f"auto_play={auto_play}, current_frame={current_frame}")
