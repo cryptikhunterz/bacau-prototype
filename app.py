@@ -461,7 +461,7 @@ def create_zone_heatmap(stats, title, team_color='#3498db'):
 
 def draw_zone_pitch(zone_stats, event_type, title="Zone Activity", team_color='#3498db'):
     """
-    Draw a football pitch with zones colored by event count.
+    Draw a football pitch with full markings and zone shading overlay.
 
     Args:
         zone_stats: Dict with zone stats from calculate_zone_stats or calculate_player_zone_stats
@@ -471,16 +471,85 @@ def draw_zone_pitch(zone_stats, event_type, title="Zone Activity", team_color='#
 
     Returns matplotlib figure
     """
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(12, 7))
     fig.patch.set_facecolor(BACKGROUND_COLOR)
 
-    # Draw pitch background (green)
+    # Pitch dimensions (normalized 0-1 for x=length, y=width)
     pitch_color = '#2d5a27'
-    ax.set_facecolor(pitch_color)
-    ax.set_xlim(-0.02, 1.02)
-    ax.set_ylim(-0.15, 1.05)
+    line_color = 'white'
+    lw = 2
 
-    # Zone definitions (y-axis boundaries, matching ZONE_BOUNDARIES)
+    ax.set_facecolor(pitch_color)
+    ax.set_xlim(-0.08, 1.08)
+    ax.set_ylim(-0.12, 1.08)
+
+    # === PITCH MARKINGS (draw first, before zone overlay) ===
+
+    # Outer boundary
+    ax.plot([0, 1, 1, 0, 0], [0, 0, 1, 1, 0], color=line_color, linewidth=lw, zorder=2)
+
+    # Halfway line (vertical, at x=0.5)
+    ax.plot([0.5, 0.5], [0, 1], color=line_color, linewidth=lw, zorder=2)
+
+    # Center circle (radius ~9.15m on 105m pitch = ~0.087)
+    center_circle = plt.Circle((0.5, 0.5), 0.087, fill=False, color=line_color, linewidth=lw, zorder=2)
+    ax.add_patch(center_circle)
+
+    # Center spot
+    ax.scatter(0.5, 0.5, color=line_color, s=30, zorder=3)
+
+    # Penalty areas (16.5m deep on 105m = 0.157, 40.3m wide on 68m = 0.593 centered)
+    pa_depth = 0.157
+    pa_y_start = (1 - 0.593) / 2  # ~0.203
+    pa_y_end = 1 - pa_y_start     # ~0.797
+
+    # Left penalty area
+    ax.plot([0, pa_depth], [pa_y_start, pa_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([pa_depth, pa_depth], [pa_y_start, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([pa_depth, 0], [pa_y_end, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Right penalty area
+    ax.plot([1, 1 - pa_depth], [pa_y_start, pa_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - pa_depth, 1 - pa_depth], [pa_y_start, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - pa_depth, 1], [pa_y_end, pa_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Goal areas (5.5m deep = 0.052, 18.32m wide on 68m = 0.269 centered)
+    ga_depth = 0.052
+    ga_y_start = (1 - 0.269) / 2  # ~0.365
+    ga_y_end = 1 - ga_y_start     # ~0.635
+
+    # Left goal area
+    ax.plot([0, ga_depth], [ga_y_start, ga_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([ga_depth, ga_depth], [ga_y_start, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([ga_depth, 0], [ga_y_end, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Right goal area
+    ax.plot([1, 1 - ga_depth], [ga_y_start, ga_y_start], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - ga_depth, 1 - ga_depth], [ga_y_start, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+    ax.plot([1 - ga_depth, 1], [ga_y_end, ga_y_end], color=line_color, linewidth=lw, zorder=2)
+
+    # Goals (7.32m wide on 68m = 0.108 centered, extending outside pitch)
+    goal_width = 0.108
+    goal_depth = 0.02
+    goal_y_start = (1 - goal_width) / 2  # ~0.446
+    goal_y_end = 1 - goal_y_start        # ~0.554
+
+    # Left goal (extends left of x=0)
+    ax.plot([0, -goal_depth], [goal_y_start, goal_y_start], color=line_color, linewidth=3, zorder=2)
+    ax.plot([-goal_depth, -goal_depth], [goal_y_start, goal_y_end], color=line_color, linewidth=3, zorder=2)
+    ax.plot([-goal_depth, 0], [goal_y_end, goal_y_end], color=line_color, linewidth=3, zorder=2)
+
+    # Right goal (extends right of x=1)
+    ax.plot([1, 1 + goal_depth], [goal_y_start, goal_y_start], color=line_color, linewidth=3, zorder=2)
+    ax.plot([1 + goal_depth, 1 + goal_depth], [goal_y_start, goal_y_end], color=line_color, linewidth=3, zorder=2)
+    ax.plot([1 + goal_depth, 1], [goal_y_end, goal_y_end], color=line_color, linewidth=3, zorder=2)
+
+    # Penalty spots (11m from goal = 0.105)
+    ax.scatter(0.105, 0.5, color=line_color, s=20, zorder=3)
+    ax.scatter(1 - 0.105, 0.5, color=line_color, s=20, zorder=3)
+
+    # === ZONE SHADING (transparent overlay on top of pitch) ===
+    # Zones are horizontal bands (y-axis) since tactical zones are based on pitch width
     zones = [
         ('LW', 0, 0.18),
         ('LHS', 0.18, 0.36),
@@ -493,50 +562,43 @@ def draw_zone_pitch(zone_stats, event_type, title="Zone Activity", team_color='#
     counts = [zone_stats[z][event_type] for z, _, _ in zones]
     max_count = max(counts) if max(counts) > 0 else 1
 
-    # Create colormap from dark to team color
+    # Create colormap from transparent to team color
     from matplotlib.colors import LinearSegmentedColormap
-    colors_map = ['#1a3d16', team_color]  # Dark green to team color
+    colors_map = [(0.1, 0.2, 0.1, 0.0), team_color]  # Transparent to team color
     cmap = LinearSegmentedColormap.from_list('zone', colors_map)
 
-    # Draw zones (horizontal bands since zones are based on y-coordinate)
     for (zone_name, y_start, y_end), count in zip(zones, counts):
         intensity = count / max_count if max_count > 0 else 0
-        color = cmap(0.2 + intensity * 0.8)  # Range from 0.2 to 1.0
 
-        # Draw zone rectangle (full width, varying height)
+        # Semi-transparent zone rectangle
+        zone_alpha = 0.25 + intensity * 0.35  # Range 0.25 to 0.6
+        zone_color = cmap(0.3 + intensity * 0.7)
+
         rect = plt.Rectangle((0, y_start), 1, y_end - y_start,
-                             facecolor=color, edgecolor='white', linewidth=1.5, alpha=0.85)
+                             facecolor=zone_color, edgecolor='white',
+                             linewidth=1, linestyle='--', alpha=zone_alpha, zorder=1)
         ax.add_patch(rect)
 
-        # Zone label at bottom
-        ax.text((0 + 1) / 2, y_start + 0.02, zone_name,
-               ha='center', va='bottom', color='white', fontsize=11, fontweight='bold', alpha=0.7)
+        # Zone label at bottom (outside pitch)
+        ax.text(0.5, y_start - 0.03, zone_name,
+               ha='center', va='top', color='white', fontsize=10, fontweight='bold', alpha=0.9)
 
-        # Count in center of zone
+        # Count in center of zone with background box for visibility
         y_center = (y_start + y_end) / 2
         ax.text(0.5, y_center, str(count),
-               ha='center', va='center', color='white', fontsize=24, fontweight='bold')
+               ha='center', va='center', color='white', fontsize=20, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.6), zorder=4)
 
-    # Draw pitch markings (simplified)
-    # Outline
-    ax.plot([0, 0, 1, 1, 0], [0, 1, 1, 0, 0], color='white', linewidth=2)
-    # Center line
-    ax.plot([0, 1], [0.5, 0.5], color='white', linewidth=1.5, alpha=0.5)
-    # Center circle
-    center_circle = plt.Circle((0.5, 0.5), 0.09, fill=False, color='white', linewidth=1.5, alpha=0.5)
-    ax.add_patch(center_circle)
-    # Center spot
-    ax.scatter(0.5, 0.5, color='white', s=20, zorder=5, alpha=0.5)
-
-    # Goal areas (simplified rectangles)
-    # Left goal area
-    ax.plot([0, 0.05, 0.05, 0], [0.38, 0.38, 0.62, 0.62], color='white', linewidth=1.5, alpha=0.5)
-    # Right goal area
-    ax.plot([1, 0.95, 0.95, 1], [0.38, 0.38, 0.62, 0.62], color='white', linewidth=1.5, alpha=0.5)
+    # Direction arrow and goal labels
+    ax.text(-0.04, 0.5, 'GOAL', ha='center', va='center', color='#888888',
+           fontsize=9, fontweight='bold', rotation=90)
+    ax.text(1.04, 0.5, 'GOAL', ha='center', va='center', color='#888888',
+           fontsize=9, fontweight='bold', rotation=90)
 
     # Title
-    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=10)
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=15)
     ax.axis('off')
+    ax.set_aspect('equal')
 
     plt.tight_layout()
     return fig
