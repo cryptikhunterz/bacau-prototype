@@ -140,6 +140,110 @@ def draw_ball(ax, x, y, color='white'):
     ax.add_patch(ball)
 
 
+def compute_team_stats(positions):
+    """Compute team shape statistics from positions dict."""
+    from scipy.spatial import ConvexHull
+    import math
+
+    if len(positions) < 3:
+        return {'area': 0, 'compactness': 0, 'width': 0, 'depth': 0, 'centroid': (0, 0)}
+
+    points = np.array(list(positions.values()))
+    xs = points[:, 0]
+    ys = points[:, 1]
+
+    # Centroid
+    centroid = (np.mean(xs), np.mean(ys))
+
+    # Width (lateral spread) and Depth (vertical spread)
+    width = np.max(ys) - np.min(ys)
+    depth = np.max(xs) - np.min(xs)
+
+    # Compactness (average distance from centroid)
+    distances = [math.sqrt((x - centroid[0])**2 + (y - centroid[1])**2) for x, y in positions.values()]
+    compactness = np.mean(distances)
+
+    # Convex hull area
+    try:
+        hull = ConvexHull(points)
+        area = hull.volume  # In 2D, volume gives area
+    except:
+        area = 0
+
+    return {
+        'area': area,
+        'compactness': compactness,
+        'width': width,
+        'depth': depth,
+        'centroid': centroid
+    }
+
+
+def get_ball_carrier(frame, pitch_length=105, pitch_width=68):
+    """Get the player closest to the ball."""
+    import math
+    if not frame.ball_coordinates:
+        return None, None, None
+
+    ball_x = frame.ball_coordinates.x * pitch_length
+    ball_y = frame.ball_coordinates.y * pitch_width
+
+    closest_dist = float('inf')
+    closest_player = None
+    closest_team = None
+
+    for player, data in frame.players_data.items():
+        if data.coordinates:
+            px = data.coordinates.x * pitch_length
+            py = data.coordinates.y * pitch_width
+            dist = math.sqrt((px - ball_x)**2 + (py - ball_y)**2)
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_player = player
+                if hasattr(player, 'team') and player.team:
+                    closest_team = 'home' if (player.team.ground.value == 'home' if hasattr(player.team.ground, 'value') else str(player.team.ground) == 'home') else 'away'
+                else:
+                    closest_team = 'home' if 'home' in str(player.player_id).lower() else 'away'
+
+    if closest_player and closest_dist < 5:
+        jersey = closest_player.jersey_no if hasattr(closest_player, 'jersey_no') else '?'
+        name = closest_player.name if hasattr(closest_player, 'name') else str(closest_player.player_id)
+        return f"#{jersey} {name}", closest_team, closest_dist
+    return None, None, None
+
+
+@st.cache_resource
+def load_events():
+    """Load PFF event data for game 3821."""
+    import json
+    event_path = "Fifa world cup 2022 data/Event Data/3821.json"
+    try:
+        with open(event_path) as f:
+            return json.load(f)
+    except:
+        return []
+
+
+def get_events_near_time(events, video_time, window_seconds=5):
+    """Get events within window_seconds of the given video time."""
+    nearby = []
+    for e in events:
+        event_time = e.get('startTime', 0)
+        if abs(event_time - video_time) <= window_seconds:
+            ge = e.get('gameEvents', {})
+            pe = e.get('possessionEvents', {})
+            nearby.append({
+                'time': event_time,
+                'game_clock': ge.get('startFormattedGameClock', '??:??'),
+                'event_type': ge.get('gameEventType', 'Unknown'),
+                'poss_type': pe.get('possessionEventType') if pe else None,
+                'player': ge.get('playerName', 'Unknown'),
+                'team': ge.get('teamName', 'Unknown'),
+                'target': pe.get('targetPlayerName') if pe else None
+            })
+    return sorted(nearby, key=lambda x: x['time'])
+
+
 def draw_team_shape(ax, positions, is_home=True):
     """Draw convex hull for team."""
     from scipy.spatial import ConvexHull
@@ -382,6 +486,96 @@ with col2:
             debug_html += f"<div style='color:#888;'>{entry}</div>"
         debug_html += "</div>"
         st.markdown(debug_html, unsafe_allow_html=True)
+
+# Stats and Events Panel
+st.markdown("---")
+st.subheader("Match Analysis")
+
+stats_col, events_col = st.columns(2)
+
+with stats_col:
+    st.markdown("##### Team Shape Statistics")
+
+    # Compute stats for both teams
+    home_stats = compute_team_stats(frame_data.get('home', {}))
+    away_stats = compute_team_stats(frame_data.get('away', {}))
+
+    # Ball carrier info
+    carrier, carrier_team, carrier_dist = get_ball_carrier(frame)
+
+    # Create comparison metrics
+    metric_col1, metric_col2 = st.columns(2)
+
+    with metric_col1:
+        st.markdown(f"**{home_name}**")
+        st.metric("Area", f"{home_stats['area']:.0f} m²")
+        st.metric("Compactness", f"{home_stats['compactness']:.1f} m")
+        st.metric("Width", f"{home_stats['width']:.1f} m")
+        st.metric("Depth", f"{home_stats['depth']:.1f} m")
+
+    with metric_col2:
+        st.markdown(f"**{away_name}**")
+        st.metric("Area", f"{away_stats['area']:.0f} m²")
+        st.metric("Compactness", f"{away_stats['compactness']:.1f} m")
+        st.metric("Width", f"{away_stats['width']:.1f} m")
+        st.metric("Depth", f"{away_stats['depth']:.1f} m")
+
+    # Ball carrier
+    if carrier:
+        carrier_color = '#3498db' if carrier_team == 'home' else '#e74c3c'
+        team_name_display = home_name if carrier_team == 'home' else away_name
+        st.markdown(f"**Ball Carrier:** <span style='color:{carrier_color}'>{carrier}</span> ({team_name_display}) - {carrier_dist:.1f}m from ball", unsafe_allow_html=True)
+    else:
+        st.markdown("**Ball Carrier:** _None (ball loose)_")
+
+with events_col:
+    st.markdown("##### Event Log (PFF)")
+
+    # Load events
+    events = load_events()
+
+    # Calculate video time from frame index
+    # PFF uses 29.97 fps, with startPeriod1 offset
+    fps = 29.97
+    start_period1 = 118.719  # From metadata for game 3821
+    video_time = start_period1 + (current_frame / fps)
+
+    # Get nearby events (within 3 seconds)
+    nearby_events = get_events_near_time(events, video_time, window_seconds=3)
+
+    st.caption(f"Video time: {video_time:.1f}s | Frame: {current_frame}")
+
+    if nearby_events:
+        for evt in nearby_events[-8:]:  # Show last 8 events
+            evt_type = evt['event_type']
+            poss_type = evt['poss_type'] or ''
+            player = evt['player']
+            team = evt['team']
+            clock = evt['game_clock']
+            target = evt['target']
+
+            # Color by team
+            if team == home_name or team == default_home:
+                color = '#3498db'
+            elif team == away_name or team == default_away:
+                color = '#e74c3c'
+            else:
+                color = '#888'
+
+            # Format event string
+            evt_str = f"[{clock}] "
+            if poss_type:
+                evt_str += f"{poss_type}: "
+            evt_str += f"<span style='color:{color}'>{player}</span>"
+            if target:
+                evt_str += f" → {target}"
+
+            st.markdown(evt_str, unsafe_allow_html=True)
+    else:
+        st.caption("_No events near current time_")
+
+    # Show total events for reference
+    st.caption(f"Total events in match: {len(events)}")
 
 # Auto-play logic
 add_debug(f"auto_play={auto_play}, current_frame={current_frame}")
