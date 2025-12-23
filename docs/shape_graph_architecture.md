@@ -2,118 +2,115 @@
 
 ## Overview
 
-A Streamlit-based football tracking visualization app that shows team formations as "shape graphs" with bi-colored player markers and convex hull team shapes.
+Shape Graph Visualization is a Streamlit-based application for visualizing football/soccer tracking data. It displays team formations as convex hull shapes, tracks ball position and possession, and synchronizes PFF event data with frame-by-frame tracking.
 
-## Project Structure
+## System Architecture
 
 ```
-~/Desktop/shape-graph-animation/
-├── app.py                 # Streamlit UI entry point
-├── main.py                # Tkinter UI entry point (alternative)
-├── src/
-│   ├── __init__.py
-│   ├── activity_logger.py # Logging to file + UI
-│   ├── animate.py         # Animation export (GIF/MP4)
-│   ├── colors.py          # Color definitions
-│   ├── data_loader.py     # Data loading utilities
-│   ├── markers.py         # Bi-colored semi-circle markers
-│   ├── pitch.py           # Football pitch drawing
-│   ├── position_classifier.py  # Position classification
-│   ├── shape_lines.py     # Convex hull team shapes
-│   ├── ui.py              # Tkinter UI wrapper
-│   └── visualize.py       # Static frame visualization
-├── outputs/
-│   ├── frames/            # PNG exports
-│   └── videos/            # GIF/MP4 exports
-├── logs/
-│   └── activity_log.md    # Activity log file
-└── docs/                  # Documentation
++------------------+     +------------------+     +------------------+
+|   PFF Data       |     |   Kloppy         |     |   Streamlit      |
+|   (JSON/BZ2)     | --> |   Loader         | --> |   App            |
++------------------+     +------------------+     +------------------+
+                                                          |
+                         +--------------------------------+
+                         |
+          +--------------+--------------+--------------+
+          |              |              |              |
+    +-----v----+  +------v-----+  +-----v----+  +-----v----+
+    | Pitch    |  | Markers    |  | Stats    |  | Events   |
+    | Renderer |  | Renderer   |  | Computer |  | Loader   |
+    +----------+  +------------+  +----------+  +----------+
 ```
 
 ## Data Flow
 
+1. **Data Loading**: PFF tracking data loaded via kloppy library
+2. **Frame Extraction**: Player positions extracted per frame (normalized 0-1 coordinates)
+3. **Coordinate Scaling**: Positions scaled to pitch dimensions (105x68 meters)
+4. **Shape Computation**: Convex hull calculated for outfield players
+5. **Stats Calculation**: Area, compactness, width, depth computed per frame
+6. **Event Sync**: Events matched to current video timestamp
+7. **Rendering**: Matplotlib figures rendered to Streamlit
+
+## File Structure
+
 ```
-Kloppy (metrica.load_open_data())
-    ↓
-TrackingDataset (145K frames)
-    ↓
-frame.players_data → extract_positions()
-    ↓
-{player_id: (x, y)} dict (normalized 0-1)
-    ↓
-Convert to pitch coords (0-105, 0-68)
-    ↓
-classify_team_vertical() → bucket 0-4 (back→front)
-classify_team_horizontal() → bucket 0-4 (left→right)
-    ↓
-draw_player_marker() → bi-colored wedges
-draw_team_shape() → convex hull polygon
-    ↓
-matplotlib Figure → st.pyplot()
+shape-graph-animation/
+├── app.py                 # Main Streamlit application
+├── src/
+│   ├── pitch.py           # Pitch drawing functions
+│   ├── markers.py         # Player marker rendering
+│   ├── colors.py          # Color definitions
+│   ├── position_classifier.py  # Formation detection
+│   └── shape_lines.py     # Shape line utilities
+├── docs/                  # Documentation
+│   ├── shape_graph_architecture.md
+│   ├── pff_data_integration.md
+│   ├── tracking_stats.md
+│   ├── event_sync.md
+│   └── streamlit_patterns.md
+├── Fifa world cup 2022 data/  # PFF data (not in repo)
+│   ├── Metadata/          # Match metadata JSON
+│   ├── Rosters/           # Player roster JSON
+│   ├── Tracking Data/     # Position tracking (JSONL.BZ2)
+│   └── Event Data/        # Game events JSON
+└── requirements.txt       # Python dependencies
 ```
 
-## Key Files
+## Core Components
 
-### app.py (Streamlit UI)
-- Main entry point for web UI
-- Frame scrubbing slider
-- Auto-play with session state pattern
-- Team shape toggle
-- Ball visualization toggle
-- Activity log + debug trace panels
+### app.py (Main Application)
 
-### src/markers.py
-- `draw_bicolor_marker()` - Upper/lower semi-circle wedges
-- `draw_player_marker()` - Complete marker with jersey number
-- Uses matplotlib.patches.Wedge for semi-circles
-
-### src/position_classifier.py
-- `classify_team_vertical()` - Back (0) to Front (4)
-- `classify_team_horizontal()` - Left (0) to Right (4)
-- `detect_formation()` - Returns "4-3-3", "4-4-2", etc.
-
-### src/shape_lines.py
-- `compute_convex_hull()` - scipy.spatial.ConvexHull
-- `draw_team_shape()` - Filled polygon with outline
-- `identify_goalkeeper()` - Excludes GK from hull
+| Function | Purpose |
+|----------|---------|
+| `load_data()` | Cached PFF data loader via kloppy |
+| `extract_positions()` | Extract player x,y from frame |
+| `get_ball_position()` | Extract ball coordinates |
+| `get_possession()` | Determine possession by proximity |
+| `compute_team_stats()` | Calculate shape metrics |
+| `get_ball_carrier()` | Identify closest player to ball |
+| `load_events()` | Load PFF event JSON |
+| `get_events_near_time()` | Filter events by timestamp |
+| `draw_team_shape()` | Render convex hull polygon |
+| `render_frame()` | Full frame rendering pipeline |
 
 ### src/pitch.py
-- `draw_pitch()` - Full pitch with markings
-- 105m x 68m standard dimensions
-- Penalty areas, center circle, goals
 
-## Session State Keys
+Renders the football pitch with standard markings:
+- Pitch outline (105x68m)
+- Center circle and spot
+- Penalty areas and spots
+- Goal areas
+- Corner arcs
 
-| Key | Purpose |
-|-----|---------|
-| `current_frame` | Source of truth for frame index |
-| `_slider_widget` | Internal slider widget key |
-| `log` | Activity log messages (list) |
-| `debug_log` | Debug trace messages (list) |
+### src/markers.py
 
-## Color Scheme
+Renders player markers with:
+- Position-based coloring (defense/midfield/attack)
+- Jersey number labels
+- Radius scaling
 
-### Vertical (Back → Front)
-- 0: #1565C0 (Deep Blue) - Defensive
-- 1: #42A5F5 (Light Blue) - Defensive Mid
-- 2: #AB47BC (Purple) - Central Mid
-- 3: #EF5350 (Light Red) - Attacking Mid
-- 4: #C62828 (Deep Red) - Forward
+### src/colors.py
 
-### Horizontal (Left → Right)
-- 0: #795548 (Brown) - Left
-- 1: #8D6E63 (Light Brown) - Left-Center
-- 2: #78909C (Blue-Grey) - Center
-- 3: #81C784 (Light Green) - Right-Center
-- 4: #2E7D32 (Deep Green) - Right
+Color palette definitions:
+- `BACKGROUND_COLOR`: Dark theme background (#0d1117)
+- Team colors: Blue (#3498db) for home, Red (#e74c3c) for away
+- Position gradients for player markers
 
-## Running the App
+## Dependencies
 
-```bash
-cd ~/Desktop/shape-graph-animation
-source venv/bin/activate
-export SSL_CERT_FILE=$(python -c "import certifi; print(certifi.where())")
-streamlit run app.py
-```
+| Package | Purpose |
+|---------|---------|
+| streamlit | Web UI framework |
+| matplotlib | Pitch and player rendering |
+| numpy | Numerical operations |
+| scipy | Convex hull computation |
+| kloppy | Football tracking data loading |
+| certifi | SSL certificate handling |
 
-Open http://localhost:8501
+## Performance Considerations
+
+- **Caching**: `@st.cache_resource` for data loading (only loads once)
+- **Frame Skip**: Autoplay skips frames for smoother playback
+- **Minimum Delay**: 50ms minimum between reruns for UI responsiveness
+- **Figure Cleanup**: `plt.close(fig)` prevents memory leaks
