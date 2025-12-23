@@ -54,7 +54,7 @@ def load_data():
     """Load PFF World Cup 2022 tracking data (cached)."""
     from kloppy import pff
     base_path = "Fifa world cup 2022 data"
-    game_id = "3819"  # France vs Australia
+    game_id = "3821"  # Germany vs Japan (famous upset - Japan won 2-1)
     return pff.load_tracking(
         meta_data=os.path.join(base_path, "Metadata", f"{game_id}.json"),
         roster_meta_data=os.path.join(base_path, "Rosters", f"{game_id}.json"),
