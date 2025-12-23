@@ -118,15 +118,32 @@ def draw_pitch(ax, pitch_length=105, pitch_width=68,
 
     # Tactical zone lines (optional)
     if show_zones:
-        # Zone boundaries (normalized positions across width)
-        # LW | LHS | C | RHS | RW
+        # Zone shading - draw first (zorder=0) so they appear behind everything
+        # LW | LHS | C | RHS | RW (symmetric colors: wings=blue, half spaces=green, center=yellow)
+        zone_shading = [
+            (0.0, 0.18, '#3498db'),    # Left Wing - blue
+            (0.18, 0.36, '#2ecc71'),   # Left Half Space - green
+            (0.36, 0.64, '#f1c40f'),   # Center - yellow
+            (0.64, 0.82, '#2ecc71'),   # Right Half Space - green
+            (0.82, 1.0, '#3498db'),    # Right Wing - blue
+        ]
+        for y_start, y_end, color in zone_shading:
+            rect = mpatches.Rectangle(
+                (0, y_start * pitch_width),
+                pitch_length,
+                (y_end - y_start) * pitch_width,
+                facecolor=color, alpha=0.1, zorder=0
+            )
+            ax.add_patch(rect)
+
+        # Zone boundary lines (dashed)
         zone_boundaries = [0.18, 0.36, 0.64, 0.82]
         for y_norm in zone_boundaries:
             y = y_norm * pitch_width
             ax.plot([0, pitch_length], [y, y],
                     linestyle='--', linewidth=1, alpha=0.4, color='white', zorder=1)
 
-        # Zone labels at top of pitch
+        # Zone labels at center of pitch
         zone_labels = ['LW', 'LHS', 'C', 'RHS', 'RW']
         zone_centers = [0.09, 0.27, 0.50, 0.73, 0.91]
         for label, y_norm in zip(zone_labels, zone_centers):
