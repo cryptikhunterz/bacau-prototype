@@ -459,6 +459,102 @@ def create_zone_heatmap(stats, title, team_color='#3498db'):
     return fig
 
 
+def draw_zone_pitch(zone_stats, event_type, title="Zone Activity", team_color='#3498db'):
+    """
+    Draw a football pitch with zones colored by event count.
+
+    Args:
+        zone_stats: Dict with zone stats from calculate_zone_stats or calculate_player_zone_stats
+        event_type: Event type code ('PA', 'RE', 'SH', etc.)
+        title: Chart title
+        team_color: Base color for zone shading
+
+    Returns matplotlib figure
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    fig.patch.set_facecolor(BACKGROUND_COLOR)
+
+    # Draw pitch background (green)
+    pitch_color = '#2d5a27'
+    ax.set_facecolor(pitch_color)
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.15, 1.05)
+
+    # Zone definitions (y-axis boundaries, matching ZONE_BOUNDARIES)
+    zones = [
+        ('LW', 0, 0.18),
+        ('LHS', 0.18, 0.36),
+        ('C', 0.36, 0.64),
+        ('RHS', 0.64, 0.82),
+        ('RW', 0.82, 1.0)
+    ]
+
+    # Get counts for each zone
+    counts = [zone_stats[z][event_type] for z, _, _ in zones]
+    max_count = max(counts) if max(counts) > 0 else 1
+
+    # Create colormap from dark to team color
+    from matplotlib.colors import LinearSegmentedColormap
+    colors_map = ['#1a3d16', team_color]  # Dark green to team color
+    cmap = LinearSegmentedColormap.from_list('zone', colors_map)
+
+    # Draw zones (horizontal bands since zones are based on y-coordinate)
+    for (zone_name, y_start, y_end), count in zip(zones, counts):
+        intensity = count / max_count if max_count > 0 else 0
+        color = cmap(0.2 + intensity * 0.8)  # Range from 0.2 to 1.0
+
+        # Draw zone rectangle (full width, varying height)
+        rect = plt.Rectangle((0, y_start), 1, y_end - y_start,
+                             facecolor=color, edgecolor='white', linewidth=1.5, alpha=0.85)
+        ax.add_patch(rect)
+
+        # Zone label at bottom
+        ax.text((0 + 1) / 2, y_start + 0.02, zone_name,
+               ha='center', va='bottom', color='white', fontsize=11, fontweight='bold', alpha=0.7)
+
+        # Count in center of zone
+        y_center = (y_start + y_end) / 2
+        ax.text(0.5, y_center, str(count),
+               ha='center', va='center', color='white', fontsize=24, fontweight='bold')
+
+    # Draw pitch markings (simplified)
+    # Outline
+    ax.plot([0, 0, 1, 1, 0], [0, 1, 1, 0, 0], color='white', linewidth=2)
+    # Center line
+    ax.plot([0, 1], [0.5, 0.5], color='white', linewidth=1.5, alpha=0.5)
+    # Center circle
+    center_circle = plt.Circle((0.5, 0.5), 0.09, fill=False, color='white', linewidth=1.5, alpha=0.5)
+    ax.add_patch(center_circle)
+    # Center spot
+    ax.scatter(0.5, 0.5, color='white', s=20, zorder=5, alpha=0.5)
+
+    # Goal areas (simplified rectangles)
+    # Left goal area
+    ax.plot([0, 0.05, 0.05, 0], [0.38, 0.38, 0.62, 0.62], color='white', linewidth=1.5, alpha=0.5)
+    # Right goal area
+    ax.plot([1, 0.95, 0.95, 1], [0.38, 0.38, 0.62, 0.62], color='white', linewidth=1.5, alpha=0.5)
+
+    # Title
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=10)
+    ax.axis('off')
+
+    plt.tight_layout()
+    return fig
+
+
+# Event type mapping for selectors
+EVENT_TYPE_OPTIONS = {
+    'Pass': 'PA',
+    'Reception': 'RE',
+    'Shot': 'SH',
+    'Tackle': 'TC',
+    'Challenge': 'CH',
+    'Interception': 'IT',
+    'Clearance': 'CL',
+    'Cross': 'CR'
+}
+
+
 def print_zone_stats_summary(events):
     """Print zone stats to console for verification."""
     print("\n" + "="*60)
@@ -905,7 +1001,7 @@ with tab_shape:
 # Zone Analysis Tab
 with tab_zones:
     st.subheader("Zone-Based Event Analysis")
-    st.caption("Events distributed across tactical zones (Left Wing → Right Wing)")
+    st.caption("Events distributed across tactical zones (Left Wing → Right Wing). Darker zones = more events.")
 
     # Load events for zone analysis
     events = load_events()
@@ -916,14 +1012,28 @@ with tab_zones:
     with zone_col1:
         st.markdown(f"### {home_name}")
 
-        # Team zone heatmap
+        # Team zone stats
         home_zone_stats = calculate_zone_stats(events, home_name)
-        fig_home = create_zone_heatmap(home_zone_stats, f"{home_name} Zone Activity", team_color='#3498db')
+
+        # Team event selector
+        team_event_home = st.selectbox(
+            "Event Type",
+            options=list(EVENT_TYPE_OPTIONS.keys()),
+            key="home_team_event"
+        )
+        team_event_code_home = EVENT_TYPE_OPTIONS[team_event_home]
+
+        # Team zone pitch visualization
+        fig_home = draw_zone_pitch(home_zone_stats, team_event_code_home,
+                                   f"{home_name} - {team_event_home}s by Zone", team_color='#3498db')
         st.pyplot(fig_home)
         plt.close(fig_home)
 
-        # Player selector
+        # Player Analysis section
+        st.markdown("---")
         st.markdown("#### Player Analysis")
+
+        # Build player list
         home_players = []
         if dataset.metadata.teams:
             for player in dataset.metadata.teams[0].players:
@@ -933,30 +1043,55 @@ with tab_zones:
                 home_players.append((pid, f"#{jersey} {name}"))
 
         if home_players:
+            # Player selector
             selected_home = st.selectbox(
                 "Select Player",
                 options=[p[0] for p in home_players],
                 format_func=lambda x: next((p[1] for p in home_players if p[0] == x), str(x)),
                 key="home_player_select"
             )
+
+            # Player event selector (independent from team)
+            player_event_home = st.selectbox(
+                "Player Event Type",
+                options=list(EVENT_TYPE_OPTIONS.keys()),
+                key="home_player_event"
+            )
+            player_event_code_home = EVENT_TYPE_OPTIONS[player_event_home]
+
             if selected_home:
                 player_stats = calculate_player_zone_stats(events, selected_home)
                 player_name = next((p[1] for p in home_players if p[0] == selected_home), "Player")
-                fig_player = create_zone_heatmap(player_stats, f"{player_name} Zones", team_color='#3498db')
+                fig_player = draw_zone_pitch(player_stats, player_event_code_home,
+                                            f"{player_name} - {player_event_home}s", team_color='#3498db')
                 st.pyplot(fig_player)
                 plt.close(fig_player)
 
     with zone_col2:
         st.markdown(f"### {away_name}")
 
-        # Team zone heatmap
+        # Team zone stats
         away_zone_stats = calculate_zone_stats(events, away_name)
-        fig_away = create_zone_heatmap(away_zone_stats, f"{away_name} Zone Activity", team_color='#e74c3c')
+
+        # Team event selector
+        team_event_away = st.selectbox(
+            "Event Type",
+            options=list(EVENT_TYPE_OPTIONS.keys()),
+            key="away_team_event"
+        )
+        team_event_code_away = EVENT_TYPE_OPTIONS[team_event_away]
+
+        # Team zone pitch visualization
+        fig_away = draw_zone_pitch(away_zone_stats, team_event_code_away,
+                                   f"{away_name} - {team_event_away}s by Zone", team_color='#e74c3c')
         st.pyplot(fig_away)
         plt.close(fig_away)
 
-        # Player selector
+        # Player Analysis section
+        st.markdown("---")
         st.markdown("#### Player Analysis")
+
+        # Build player list
         away_players = []
         if dataset.metadata.teams and len(dataset.metadata.teams) > 1:
             for player in dataset.metadata.teams[1].players:
@@ -966,16 +1101,27 @@ with tab_zones:
                 away_players.append((pid, f"#{jersey} {name}"))
 
         if away_players:
+            # Player selector
             selected_away = st.selectbox(
                 "Select Player",
                 options=[p[0] for p in away_players],
                 format_func=lambda x: next((p[1] for p in away_players if p[0] == x), str(x)),
                 key="away_player_select"
             )
+
+            # Player event selector (independent from team)
+            player_event_away = st.selectbox(
+                "Player Event Type",
+                options=list(EVENT_TYPE_OPTIONS.keys()),
+                key="away_player_event"
+            )
+            player_event_code_away = EVENT_TYPE_OPTIONS[player_event_away]
+
             if selected_away:
                 player_stats = calculate_player_zone_stats(events, selected_away)
                 player_name = next((p[1] for p in away_players if p[0] == selected_away), "Player")
-                fig_player = create_zone_heatmap(player_stats, f"{player_name} Zones", team_color='#e74c3c')
+                fig_player = draw_zone_pitch(player_stats, player_event_code_away,
+                                            f"{player_name} - {player_event_away}s", team_color='#e74c3c')
                 st.pyplot(fig_player)
                 plt.close(fig_player)
 
