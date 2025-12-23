@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+.env
+logs/
+outputs/frames/*.png
+outputs/videos/*.gif
+outputs/videos/*.mp4
