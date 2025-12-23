@@ -246,6 +246,126 @@ GAME_EVENT_NAMES = {
     'SECONDKICKOFF': 'Kickoff (2H)',
 }
 
+# Zone boundaries for tactical analysis (based on pitch width normalized 0-1)
+# Zones: LW (Left Wing) | LHS (Left Half Space) | C (Center) | RHS (Right Half Space) | RW (Right Wing)
+ZONE_BOUNDARIES = [
+    ('LW', 0, 0.18),
+    ('LHS', 0.18, 0.36),
+    ('C', 0.36, 0.64),
+    ('RHS', 0.64, 0.82),
+    ('RW', 0.82, 1.0)
+]
+
+# Team IDs for Germany vs Japan (game 3821)
+TEAM_IDS = {
+    'Germany': 368,
+    'Japan': 57
+}
+
+
+def get_zone(y_meters, pitch_width=68):
+    """Determine zone from y-coordinate in meters.
+
+    PFF uses centered coordinates: y=0 at center, range approx -34 to +34.
+    Convert to normalized 0-1 where 0=LW edge, 1=RW edge.
+    """
+    half_width = pitch_width / 2  # 34m
+    # Convert from centered to 0-1 normalized
+    y_normalized = (y_meters + half_width) / pitch_width
+    # Clamp to 0-1 range
+    y_normalized = max(0, min(1, y_normalized))
+    for name, low, high in ZONE_BOUNDARIES:
+        if low <= y_normalized < high:
+            return name
+    return 'C'  # Default to center
+
+
+@st.cache_resource
+def calculate_zone_stats(events, team_name):
+    """
+    Calculate zone-based stats for a team.
+
+    Returns dict with zones as keys, each containing event counts:
+    {
+        'LW': {'PA': 0, 'RE': 0, 'SH': 0, 'TC': 0, 'CH': 0, 'IT': 0, 'CL': 0, 'CR': 0},
+        'LHS': {...}, 'C': {...}, 'RHS': {...}, 'RW': {...}
+    }
+    """
+    # Initialize stats structure
+    event_types = ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']
+    stats = {zone: {et: 0 for et in event_types} for zone, _, _ in ZONE_BOUNDARIES}
+
+    team_id = TEAM_IDS.get(team_name)
+    if not team_id:
+        return stats
+
+    for event in events:
+        # Check team
+        ge = event.get('gameEvents', {})
+        if ge.get('teamId') != team_id:
+            continue
+
+        # Get possession event type
+        pe = event.get('possessionEvents', {})
+        if not pe:
+            continue
+        event_type = pe.get('possessionEventType')
+        if event_type not in event_types:
+            continue
+
+        # Get ball position for zone
+        ball = event.get('ball', [])
+        if not ball or len(ball) == 0:
+            continue
+        y = ball[0].get('y', 34)  # Default to center if missing
+
+        # Determine zone and increment count
+        zone = get_zone(y)
+        stats[zone][event_type] += 1
+
+    return stats
+
+
+def print_zone_stats_summary(events):
+    """Print zone stats to console for verification."""
+    print("\n" + "="*60)
+    print("ZONE STATS SUMMARY")
+    print("="*60)
+
+    for team in ['Germany', 'Japan']:
+        stats = calculate_zone_stats(events, team)
+        print(f"\n{team}:")
+        print("-" * 50)
+
+        # Header
+        zones = ['LW', 'LHS', 'C', 'RHS', 'RW']
+        print(f"{'Type':<8}", end="")
+        for z in zones:
+            print(f"{z:>8}", end="")
+        print(f"{'Total':>10}")
+
+        # Rows for each event type
+        for et in ['PA', 'RE', 'SH', 'TC', 'CH', 'IT', 'CL', 'CR']:
+            et_name = POSSESSION_EVENT_NAMES.get(et, et)[:7]
+            print(f"{et_name:<8}", end="")
+            total = 0
+            for z in zones:
+                count = stats[z][et]
+                total += count
+                print(f"{count:>8}", end="")
+            print(f"{total:>10}")
+
+        # Zone totals
+        print(f"{'TOTAL':<8}", end="")
+        grand_total = 0
+        for z in zones:
+            zone_total = sum(stats[z].values())
+            grand_total += zone_total
+            print(f"{zone_total:>8}", end="")
+        print(f"{grand_total:>10}")
+
+    print("\n" + "="*60 + "\n")
+
 
 def get_events_near_time(events, video_time, window_seconds=5):
     """Get events within window_seconds of the given video time."""
@@ -389,6 +509,12 @@ if 'debug_log' not in st.session_state:
     st.session_state.debug_log = []
 if 'perf_metrics' not in st.session_state:
     st.session_state.perf_metrics = {'extract': 0, 'render': 0, 'display': 0, 'total': 0, 'fps': 0}
+if 'zone_stats_printed' not in st.session_state:
+    st.session_state.zone_stats_printed = False
+    # Print zone stats summary on first load
+    events = load_events()
+    if events:
+        print_zone_stats_summary(events)
 
 def add_debug(msg):
     """Add message to debug trace."""
