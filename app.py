@@ -355,6 +355,24 @@ def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", 
                 title += f"\n{formation}"
             ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=15)
 
+    # Direction of play arrows below each pitch
+    # Home team attacks RIGHT (→), Away team attacks LEFT (←)
+    for ax, is_home in [(ax1, True), (ax2, False)]:
+        if is_home:
+            # Home: arrow pointing right
+            ax.annotate('', xy=(0.85, -0.06), xytext=(0.15, -0.06),
+                       arrowprops=dict(arrowstyle='->', color='white', lw=2),
+                       xycoords='axes fraction')
+            ax.text(0.5, -0.10, 'Direction of Play', ha='center', va='top',
+                   color='#888888', fontsize=10, transform=ax.transAxes)
+        else:
+            # Away: arrow pointing left
+            ax.annotate('', xy=(0.15, -0.06), xytext=(0.85, -0.06),
+                       arrowprops=dict(arrowstyle='->', color='white', lw=2),
+                       xycoords='axes fraction')
+            ax.text(0.5, -0.10, 'Direction of Play', ha='center', va='top',
+                   color='#888888', fontsize=10, transform=ax.transAxes)
+
     fig.tight_layout()
     return fig
 
