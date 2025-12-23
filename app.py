@@ -307,13 +307,13 @@ def draw_team_shape(ax, positions, is_home=True):
         pass
 
 
-def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True, possession=None):
+def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True, possession=None, show_zones=False):
     """Render a single frame."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
     fig.patch.set_facecolor(BACKGROUND_COLOR)
 
     for ax, team_key, team_name in [(ax1, 'home', home_name), (ax2, 'away', away_name)]:
-        draw_pitch(ax)
+        draw_pitch(ax, show_zones=show_zones)
         positions = frame_data.get(team_key, {})
 
         if positions:
@@ -420,6 +420,7 @@ with st.sidebar:
     st.subheader("Display Options")
     show_shapes = st.checkbox("Show team shapes", value=True)
     show_ball = st.checkbox("Show ball", value=True)
+    show_zones = st.checkbox("Show tactical zones", value=True)
 
     # Team names (editable, with real names as default)
     home_name = st.text_input("Home Team", default_home)
@@ -464,7 +465,7 @@ with col1:
     extract_ms = (t1 - t0) * 1000
 
     # Time: Matplotlib render
-    fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession)
+    fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession, show_zones)
     t2 = time.perf_counter()
     render_ms = (t2 - t1) * 1000
 

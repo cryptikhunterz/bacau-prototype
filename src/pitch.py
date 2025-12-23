@@ -10,7 +10,8 @@ except ImportError:
 
 
 def draw_pitch(ax, pitch_length=105, pitch_width=68,
-               line_color=LINE_COLOR, pitch_color=PITCH_COLOR):
+               line_color=LINE_COLOR, pitch_color=PITCH_COLOR,
+               show_zones=False):
     """
     Draw a football pitch on the given axes.
 
@@ -20,6 +21,7 @@ def draw_pitch(ax, pitch_length=105, pitch_width=68,
         pitch_width: Pitch width in meters (default 68)
         line_color: Color for pitch lines
         pitch_color: Background color of pitch
+        show_zones: Whether to show tactical zone lines (default False)
 
     Returns:
         The axes object
@@ -113,6 +115,25 @@ def draw_pitch(ax, pitch_length=105, pitch_width=68,
     # Penalty spots
     ax.scatter(11, pitch_width/2, color=line_color, s=15, zorder=5)
     ax.scatter(pitch_length - 11, pitch_width/2, color=line_color, s=15, zorder=5)
+
+    # Tactical zone lines (optional)
+    if show_zones:
+        # Zone boundaries (normalized positions across width)
+        # LW | LHS | C | RHS | RW
+        zone_boundaries = [0.18, 0.36, 0.64, 0.82]
+        for y_norm in zone_boundaries:
+            y = y_norm * pitch_width
+            ax.plot([0, pitch_length], [y, y],
+                    linestyle='--', linewidth=1, alpha=0.4, color='white', zorder=1)
+
+        # Zone labels at top of pitch
+        zone_labels = ['LW', 'LHS', 'C', 'RHS', 'RW']
+        zone_centers = [0.09, 0.27, 0.50, 0.73, 0.91]
+        for label, y_norm in zip(zone_labels, zone_centers):
+            y = y_norm * pitch_width
+            ax.text(pitch_length / 2, y, label,
+                    ha='center', va='center', fontsize=9, fontweight='bold',
+                    color='white', alpha=0.5, zorder=1)
 
     # Set limits and aspect
     ax.set_xlim(-5, pitch_length + 5)
