@@ -51,9 +51,15 @@ st.markdown("""
 
 @st.cache_resource
 def load_data():
-    """Load tracking data (cached)."""
-    from kloppy import metrica
-    return metrica.load_open_data()
+    """Load PFF World Cup 2022 tracking data (cached)."""
+    from kloppy import pff
+    base_path = "Fifa world cup 2022 data"
+    game_id = "3819"  # France vs Australia
+    return pff.load_tracking(
+        meta_data=os.path.join(base_path, "Metadata", f"{game_id}.json"),
+        roster_meta_data=os.path.join(base_path, "Rosters", f"{game_id}.json"),
+        raw_data=os.path.join(base_path, "Tracking Data", f"{game_id}.jsonl.bz2")
+    )
 
 
 def extract_positions(frame, pitch_length=105, pitch_width=68):
@@ -64,8 +70,19 @@ def extract_positions(frame, pitch_length=105, pitch_width=68):
         if data.coordinates:
             x = data.coordinates.x * pitch_length
             y = data.coordinates.y * pitch_width
-            pid = int(player.player_id.split('_')[1])
-            if 'home' in player.player_id:
+            # Get jersey number - try jersey_no first, then parse player_id
+            if hasattr(player, 'jersey_no') and player.jersey_no:
+                pid = int(player.jersey_no)
+            elif '_' in str(player.player_id):
+                pid = int(player.player_id.split('_')[1])
+            else:
+                pid = int(player.player_id) if str(player.player_id).isdigit() else 0
+            # Determine team from player's team attribute or player_id
+            if hasattr(player, 'team') and player.team:
+                is_home = player.team.ground.value == 'home' if hasattr(player.team.ground, 'value') else str(player.team.ground) == 'home'
+            else:
+                is_home = 'home' in str(player.player_id).lower()
+            if is_home:
                 home[pid] = (x, y)
             else:
                 away[pid] = (x, y)
@@ -101,7 +118,11 @@ def get_possession(frame, pitch_length=105, pitch_width=68):
             dist = math.sqrt((px - ball_x)**2 + (py - ball_y)**2)
             if dist < closest_dist:
                 closest_dist = dist
-                closest_team = 'home' if 'home' in player.player_id else 'away'
+                # Determine team from player's team attribute or player_id
+                if hasattr(player, 'team') and player.team:
+                    closest_team = 'home' if (player.team.ground.value == 'home' if hasattr(player.team.ground, 'value') else str(player.team.ground) == 'home') else 'away'
+                else:
+                    closest_team = 'home' if 'home' in str(player.player_id).lower() else 'away'
 
     # Only count as possession if within ~3 meters
     if closest_dist < 3:
@@ -238,10 +259,19 @@ with st.sidebar:
     st.header("Controls")
 
     # Load data
-    with st.spinner("Loading tracking data..."):
+    with st.spinner("Loading PFF World Cup 2022 data..."):
         dataset = load_data()
 
+    # Extract real team names from metadata
+    if dataset.metadata.teams:
+        default_home = dataset.metadata.teams[0].name
+        default_away = dataset.metadata.teams[1].name
+    else:
+        default_home = "Home"
+        default_away = "Away"
+
     st.success(f"Loaded {len(dataset.frames):,} frames")
+    st.caption(f"Match: {default_home} vs {default_away}")
 
     # Frame selection - uses current_frame as value, _slider_widget as key
     frame_idx = st.slider(
@@ -262,9 +292,24 @@ with st.sidebar:
     show_shapes = st.checkbox("Show team shapes", value=True)
     show_ball = st.checkbox("Show ball", value=True)
 
-    # Team names
-    home_name = st.text_input("Home Team", "Home")
-    away_name = st.text_input("Away Team", "Away")
+    # Team names (editable, with real names as default)
+    home_name = st.text_input("Home Team", default_home)
+    away_name = st.text_input("Away Team", default_away)
+
+    # Player Rosters
+    st.subheader("Rosters")
+    with st.expander(f"{default_home} Players", expanded=False):
+        if dataset.metadata.teams:
+            for player in dataset.metadata.teams[0].players:
+                jersey = player.jersey_no if hasattr(player, 'jersey_no') else "?"
+                name = player.name if hasattr(player, 'name') else player.player_id
+                st.caption(f"#{jersey} {name}")
+    with st.expander(f"{default_away} Players", expanded=False):
+        if dataset.metadata.teams and len(dataset.metadata.teams) > 1:
+            for player in dataset.metadata.teams[1].players:
+                jersey = player.jersey_no if hasattr(player, 'jersey_no') else "?"
+                name = player.name if hasattr(player, 'name') else player.player_id
+                st.caption(f"#{jersey} {name}")
 
     # Performance metrics
     st.subheader("Performance")
@@ -359,4 +404,4 @@ if auto_play:
 
 # Footer
 st.markdown("---")
-st.caption("Shape Graph Visualization | Metrica Sample Data")
+st.caption("Shape Graph Visualization | PFF FIFA World Cup 2022")
