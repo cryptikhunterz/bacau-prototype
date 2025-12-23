@@ -6,6 +6,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 import sys
 import os
+import time
 
 # Fix SSL for macOS
 try:
@@ -177,6 +178,8 @@ if 'log' not in st.session_state:
     st.session_state.log = []
 if 'debug_log' not in st.session_state:
     st.session_state.debug_log = []
+if 'perf_metrics' not in st.session_state:
+    st.session_state.perf_metrics = {'extract': 0, 'render': 0, 'display': 0, 'total': 0, 'fps': 0}
 
 def add_debug(msg):
     """Add message to debug trace."""
@@ -222,6 +225,12 @@ with st.sidebar:
     home_name = st.text_input("Home Team", "Home")
     away_name = st.text_input("Away Team", "Away")
 
+    # Performance metrics
+    st.subheader("Performance")
+    pm = st.session_state.perf_metrics
+    st.metric("FPS", f"{pm['fps']:.1f}")
+    st.caption(f"Extract: {pm['extract']:.1f}ms | Render: {pm['render']:.1f}ms | Display: {pm['display']:.1f}ms")
+
 # Main content
 col1, col2 = st.columns([3, 1])
 
@@ -230,15 +239,36 @@ current_frame = st.session_state.current_frame
 add_debug(f"render_frame() called with frame={current_frame}")
 
 with col1:
-    # Get frame data
+    # Time: Data extraction
+    t0 = time.perf_counter()
     frame = dataset.frames[current_frame]
     frame_data = extract_positions(frame)
     ball_pos = get_ball_position(frame) if show_ball else None
+    t1 = time.perf_counter()
+    extract_ms = (t1 - t0) * 1000
 
-    # Render
+    # Time: Matplotlib render
     fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes)
+    t2 = time.perf_counter()
+    render_ms = (t2 - t1) * 1000
+
+    # Time: Streamlit display
     st.pyplot(fig)
     plt.close(fig)
+    t3 = time.perf_counter()
+    display_ms = (t3 - t2) * 1000
+
+    total_ms = (t3 - t0) * 1000
+    fps = 1000 / total_ms if total_ms > 0 else 0
+
+    # Store metrics
+    st.session_state.perf_metrics = {
+        'extract': extract_ms,
+        'render': render_ms,
+        'display': display_ms,
+        'total': total_ms,
+        'fps': fps
+    }
 
 with col2:
     st.subheader("Activity Log")
@@ -269,16 +299,11 @@ with col2:
 add_debug(f"auto_play={auto_play}, current_frame={current_frame}")
 
 if auto_play:
-    import time
-    # Calculate delay based on speed (higher speed = shorter delay)
-    delay = max(0.05, 0.5 / speed)
-    add_debug(f"Sleeping for {delay:.3f}s")
-    time.sleep(delay)
-
-    # Advance frame - update current_frame (NOT slider widget key)
+    # No artificial sleep - let rendering determine speed
+    # Higher speed = skip more frames (speed is frames per update)
     old_frame = st.session_state.current_frame
     new_frame = (old_frame + speed) % len(dataset.frames)
-    add_debug(f"Calculating new_frame: {old_frame} + {speed} = {new_frame}")
+    add_debug(f"Autoplay: {old_frame} -> {new_frame} (skip {speed})")
     st.session_state.current_frame = new_frame
 
     # Log advancement
