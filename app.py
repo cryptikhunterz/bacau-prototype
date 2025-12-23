@@ -82,6 +82,33 @@ def get_ball_position(frame, pitch_length=105, pitch_width=68):
     return None
 
 
+def get_possession(frame, pitch_length=105, pitch_width=68):
+    """Determine possession by finding closest player to ball."""
+    import math
+    if not frame.ball_coordinates:
+        return None
+
+    ball_x = frame.ball_coordinates.x * pitch_length
+    ball_y = frame.ball_coordinates.y * pitch_width
+
+    closest_dist = float('inf')
+    closest_team = None
+
+    for player, data in frame.players_data.items():
+        if data.coordinates:
+            px = data.coordinates.x * pitch_length
+            py = data.coordinates.y * pitch_width
+            dist = math.sqrt((px - ball_x)**2 + (py - ball_y)**2)
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_team = 'home' if 'home' in player.player_id else 'away'
+
+    # Only count as possession if within ~3 meters
+    if closest_dist < 3:
+        return closest_team
+    return 'contested'
+
+
 def draw_ball(ax, x, y, color='white'):
     """Draw ball on pitch."""
     # Glow effect
@@ -130,7 +157,7 @@ def draw_team_shape(ax, positions, is_home=True):
         pass
 
 
-def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True):
+def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True, possession=None):
     """Render a single frame."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
     fig.patch.set_facecolor(BACKGROUND_COLOR)
@@ -158,6 +185,20 @@ def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", 
             # Draw ball
             if ball_pos:
                 draw_ball(ax, ball_pos[0], ball_pos[1])
+
+            # Draw possession indicator
+            if possession:
+                if possession == 'home':
+                    poss_text = f"⚽ {home_name}"
+                    poss_color = '#3498db'  # Blue
+                elif possession == 'away':
+                    poss_text = f"⚽ {away_name}"
+                    poss_color = '#e74c3c'  # Red
+                else:
+                    poss_text = "⚽ CONTESTED"
+                    poss_color = '#888888'  # Gray
+                ax.text(52.5, 72, poss_text, fontsize=12, fontweight='bold',
+                       color=poss_color, ha='center', va='bottom', zorder=10)
 
             title = f"{team_name}"
             if formation:
@@ -244,11 +285,12 @@ with col1:
     frame = dataset.frames[current_frame]
     frame_data = extract_positions(frame)
     ball_pos = get_ball_position(frame) if show_ball else None
+    possession = get_possession(frame)
     t1 = time.perf_counter()
     extract_ms = (t1 - t0) * 1000
 
     # Time: Matplotlib render
-    fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes)
+    fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession)
     t2 = time.perf_counter()
     render_ms = (t2 - t1) * 1000
 
@@ -273,8 +315,9 @@ with col1:
 with col2:
     st.subheader("Activity Log")
 
-    # Add current frame to log (avoid duplicates)
-    log_entry = f"Frame {current_frame} rendered"
+    # Add current frame to log with possession (avoid duplicates)
+    poss_str = possession.upper() if possession else "N/A"
+    log_entry = f"Frame {current_frame} | Poss: {poss_str}"
     if not st.session_state.log or st.session_state.log[-1] != log_entry:
         st.session_state.log.append(log_entry)
         if len(st.session_state.log) > 50:
