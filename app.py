@@ -21,6 +21,18 @@ from pitch import draw_pitch
 from markers import draw_player_marker
 from position_classifier import classify_team_vertical, classify_team_horizontal, detect_formation
 from colors import BACKGROUND_COLOR
+from time_utils import frame_to_match_time
+from compactness import compute_ci, is_defending
+from shape_lines import get_outfield_positions
+
+# Game metadata for time conversion (Game 3821)
+GAME_METADATA = {
+    'fps': 29.97,
+    'startPeriod1': 118.719,
+    'endPeriod1': 3177.578,
+    'startPeriod2': 3244.244,
+    'endPeriod2': 6434.634
+}
 
 # Page config
 st.set_page_config(
@@ -1142,6 +1154,55 @@ with st.sidebar:
     st.metric("FPS", f"{pm['fps']:.1f}")
     st.caption(f"Extract: {pm['extract']:.1f}ms | Render: {pm['render']:.1f}ms | Display: {pm['display']:.1f}ms")
 
+    # CI Calibration section
+    with st.expander("CI Calibration", expanded=False):
+        st.caption("Adjust Compactness Index parameters")
+
+        # Reference areas by block type
+        st.markdown("**Reference Areas (m²)**")
+        ref_area_high = st.slider(
+            "High Press",
+            min_value=400, max_value=1000, value=600, step=50,
+            help="Target area when pressing high (smaller = stricter)"
+        )
+        ref_area_mid = st.slider(
+            "Mid Block",
+            min_value=300, max_value=800, value=450, step=50,
+            help="Target area in mid block"
+        )
+        ref_area_low = st.slider(
+            "Low Block",
+            min_value=150, max_value=500, value=300, step=25,
+            help="Target area when defending deep"
+        )
+
+        st.markdown("**Balance & Boundaries**")
+        sigma = st.slider(
+            "Balance Sensitivity (σ)",
+            min_value=0.1, max_value=1.0, value=0.5, step=0.1,
+            help="Lower = stricter penalty for unbalanced shapes"
+        )
+        boundary_low_mid = st.slider(
+            "Low/Mid Boundary (%)",
+            min_value=20, max_value=50, value=35, step=5,
+            help="Below this = low block"
+        )
+        boundary_mid_high = st.slider(
+            "Mid/High Boundary (%)",
+            min_value=50, max_value=80, value=65, step=5,
+            help="Above this = high press"
+        )
+
+    # Store CI config in session_state for use in stats display
+    st.session_state.ci_config = {
+        'ref_area_high': ref_area_high,
+        'ref_area_mid': ref_area_mid,
+        'ref_area_low': ref_area_low,
+        'sigma': sigma,
+        'boundary_low_mid': boundary_low_mid / 100,  # Convert % to decimal
+        'boundary_mid_high': boundary_mid_high / 100  # Convert % to decimal
+    }
+
 # Main content with tabs
 tab_shape, tab_zones = st.tabs(["📊 Shape Graph", "🎯 Zone Analysis"])
 
@@ -1190,7 +1251,8 @@ with tab_shape:
 
         # Add current frame to log with possession (avoid duplicates)
         poss_str = possession.upper() if possession else "N/A"
-        log_entry = f"Frame {current_frame} | Poss: {poss_str}"
+        match_time = frame_to_match_time(current_frame, GAME_METADATA)
+        log_entry = f"{match_time} | Poss: {poss_str}"
         if not st.session_state.log or st.session_state.log[-1] != log_entry:
             st.session_state.log.append(log_entry)
             if len(st.session_state.log) > 50:
@@ -1227,20 +1289,55 @@ with tab_shape:
         # Ball carrier info
         carrier, carrier_team, carrier_dist = get_ball_carrier(frame)
 
+        # Get ball position and CI config for CI calculation
+        ball_pos = get_ball_position(frame)
+        ball_x = ball_pos[0] if ball_pos else 52.5  # Default to center if no ball
+        ci_config = st.session_state.get('ci_config', None)
+
+        # Compute CI for home team (only if defending)
+        home_defending = is_defending(possession, ball_x, is_home=True)
+        if home_defending:
+            home_outfield = get_outfield_positions(frame_data.get('home', {}), is_home=True)
+            home_ci = compute_ci(home_outfield, is_home=True, config=ci_config)
+        else:
+            home_ci = None
+
+        # Compute CI for away team (only if defending)
+        away_defending = is_defending(possession, ball_x, is_home=False)
+        if away_defending:
+            away_outfield = get_outfield_positions(frame_data.get('away', {}), is_home=False)
+            away_ci = compute_ci(away_outfield, is_home=False, config=ci_config)
+        else:
+            away_ci = None
+
         # Create comparison metrics
         metric_col1, metric_col2 = st.columns(2)
 
         with metric_col1:
             st.markdown(f"**{home_name}**")
             st.metric("Area", f"{home_stats['area']:.0f} m²")
-            st.metric("Compactness", f"{home_stats['compactness']:.1f} m")
+            # Block type (primary) with CI caption
+            if home_ci:
+                block_label = home_ci['block'].replace('_', ' ').title()
+                st.metric("Block", block_label)
+                st.caption(f"CI: {home_ci['ci']:.0f}/100")
+            else:
+                st.metric("Block", "In Possession")
+                st.caption("CI: —")
             st.metric("Width", f"{home_stats['width']:.1f} m")
             st.metric("Depth", f"{home_stats['depth']:.1f} m")
 
         with metric_col2:
             st.markdown(f"**{away_name}**")
             st.metric("Area", f"{away_stats['area']:.0f} m²")
-            st.metric("Compactness", f"{away_stats['compactness']:.1f} m")
+            # Block type (primary) with CI caption
+            if away_ci:
+                block_label = away_ci['block'].replace('_', ' ').title()
+                st.metric("Block", block_label)
+                st.caption(f"CI: {away_ci['ci']:.0f}/100")
+            else:
+                st.metric("Block", "In Possession")
+                st.caption("CI: —")
             st.metric("Width", f"{away_stats['width']:.1f} m")
             st.metric("Depth", f"{away_stats['depth']:.1f} m")
 
@@ -1251,6 +1348,75 @@ with tab_shape:
             st.markdown(f"**Ball Carrier:** <span style='color:{carrier_color}'>{carrier}</span> ({team_name_display}) - {carrier_dist:.1f}m from ball", unsafe_allow_html=True)
         else:
             st.markdown("**Ball Carrier:** _None (ball loose)_")
+
+        # CI explanation expander
+        with st.expander("Understanding CI (Compactness Index)", expanded=False):
+            st.markdown("""
+## What is CI?
+
+**Compactness Index** measures how tight your defensive shape is.
+Higher = more compact = harder for opponents to play through.
+
+| Score | Meaning | What it looks like |
+|-------|---------|-------------------|
+| **80-100** | Excellent | Bus parked, no gaps anywhere |
+| **60-80** | Good | Organized shape, small gaps |
+| **40-60** | Average | Shape okay but exploitable |
+| **20-40** | Poor | Stretched, big spaces between lines |
+| **0-20** | Very poor | Disorganized, no clear shape |
+
+---
+
+## Calibration Sliders (in sidebar)
+
+### Reference Areas (m²)
+
+These set the **target area** your team should occupy for each block type.
+
+| Slider | Default | When to lower it |
+|--------|---------|------------------|
+| **High Press** | 600 m² | Your team should press tighter |
+| **Mid Block** | 450 m² | You want more compact mid-block |
+| **Low Block** | 300 m² | Your team parks the bus very tight |
+
+**Example:** Your team plays very defensive. Change Low Block from 300 → 200.
+Now they need to be tighter to score high CI.
+
+---
+
+### Balance Sensitivity (σ)
+
+Controls how much **shape** matters vs just **size**.
+
+Ideal defensive shape = **2:1 ratio** (twice as wide as deep)
+
+| Value | Strictness | Use when... |
+|-------|------------|-------------|
+| **0.1-0.3** | Very strict | Team should maintain exact shape |
+| **0.4-0.6** | Moderate | Normal use (default 0.5) |
+| **0.7-1.0** | Lenient | Team often defends narrow/deep |
+
+---
+
+### Block Boundaries (%)
+
+Define **where on the pitch** each block type starts.
+
+| Slider | Default | Meaning |
+|--------|---------|---------|
+| **Low/Mid** | 35% | Below this = Low Block |
+| **Mid/High** | 65% | Above this = High Press |
+
+**Example:** Your team presses from halfway line → change Mid/High from 65% → 50%.
+
+---
+
+## Tips
+
+- **Start with defaults** — they work for most teams
+- **CI only shows when defending** — "In Possession" means that team has the ball
+- **Compare across games** — if CI seems consistently off, adjust reference areas
+            """)
 
     with events_col:
         st.markdown("##### Event Log (PFF)")
@@ -1498,7 +1664,9 @@ if auto_play:
     st.session_state.current_frame = new_frame
 
     # Log advancement
-    st.session_state.log.append(f"[Autoplay] Frame {old_frame} -> {new_frame}")
+    old_time = frame_to_match_time(old_frame, GAME_METADATA)
+    new_time = frame_to_match_time(new_frame, GAME_METADATA)
+    st.session_state.log.append(f"[Autoplay] {old_time} -> {new_time}")
 
     # Minimum delay for UI responsiveness (lets browser process events)
     time.sleep(0.05)

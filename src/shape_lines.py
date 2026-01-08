@@ -38,6 +38,24 @@ def identify_goalkeeper(positions, is_home=True):
     return gk_id
 
 
+def get_outfield_positions(positions: dict, is_home: bool = True) -> dict:
+    """
+    Extract outfield player positions (excluding goalkeeper).
+
+    Args:
+        positions: Dict of {player_id: (x, y)} for all 11 players
+        is_home: True if home team (GK near x=0), False for away (GK near x=105)
+
+    Returns:
+        Dict of {player_id: (x, y)} for 10 outfield players
+    """
+    if not positions:
+        return {}
+
+    gk_id = identify_goalkeeper(positions, is_home)
+    return {pid: pos for pid, pos in positions.items() if pid != gk_id}
+
+
 def compute_convex_hull(positions, exclude_gk=True, is_home=True):
     """
     Compute convex hull of team positions.
