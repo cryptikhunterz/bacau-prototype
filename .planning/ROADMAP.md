@@ -2,7 +2,7 @@
 
 ## Milestone 1: Pitch Control Feature (v1.0)
 
-### Phase 1: Velocity Module ⬜
+### Phase 1: Velocity Module ✅
 **Directory:** `.planning/phases/01-velocity-module/`
 
 Create velocity calculation module for player movement tracking.
@@ -14,6 +14,8 @@ Create velocity calculation module for player movement tracking.
 - Clean module interface for pitch control consumption
 
 **Output:** `src/velocity.py`
+
+**Completed:** 2026-01-09
 
 ---
 
@@ -67,12 +69,12 @@ Create technical documentation for the pitch control feature.
 
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
-| 1. Velocity Module | ⬜ Not Started | 0 | 0 |
+| 1. Velocity Module | ✅ Complete | 1 | 1 |
 | 2. Pitch Control Module | ⬜ Not Started | 0 | 0 |
 | 3. App Integration | ⬜ Not Started | 0 | 0 |
 | 4. Documentation | ⬜ Not Started | 0 | 0 |
 
-**Milestone Progress:** 0/4 phases complete
+**Milestone Progress:** 1/4 phases complete
 
 ---
 
