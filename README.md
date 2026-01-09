@@ -12,6 +12,7 @@ Real-time football/soccer tracking visualization with team shape analysis, power
 - **Autoplay**: Frame-by-frame animation with adjustable speed
 - **Formation Detection**: Automatic formation pattern recognition
 - **Zone Analysis**: Scatter plot visualization of event locations with team/player/half filtering
+- **Pitch Control**: Spatial dominance heatmap showing which team controls each area of the pitch
 
 ## Demo Match
 
@@ -108,6 +109,8 @@ Open http://localhost:8501 in your browser.
 | Speed | Frames per update (1-50) |
 | Show team shapes | Toggle convex hull display |
 | Show ball | Toggle ball marker |
+| Show pitch control | Toggle pitch control heatmap overlay |
+| Pitch control opacity | Adjust overlay transparency (0.1-0.9) |
 
 ## Project Structure
 
@@ -118,7 +121,9 @@ shape-graph-animation/
 │   ├── pitch.py        # Pitch rendering
 │   ├── markers.py      # Player markers
 │   ├── colors.py       # Color palette
-│   └── position_classifier.py  # Formation detection
+│   ├── position_classifier.py  # Formation detection
+│   ├── velocity.py     # Player velocity calculation
+│   └── pitch_control.py # Pitch control algorithm
 ├── docs/
 │   ├── shape_graph_architecture.md
 │   ├── pff_data_integration.md
@@ -137,6 +142,7 @@ shape-graph-animation/
 - [Event Synchronization](docs/event_sync.md)
 - [Streamlit Patterns](docs/streamlit_patterns.md)
 - [Zone Analysis](docs/zone_analysis.md)
+- [Pitch Control](docs/technical/pitch_control.md)
 
 ## Dependencies
 
