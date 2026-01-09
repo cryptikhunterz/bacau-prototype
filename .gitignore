@@ -8,3 +8,4 @@ logs/
 outputs/frames/*.png
 outputs/videos/*.gif
 outputs/videos/*.mp4
+# Force rebuild Fri Jan  9 13:48:26 WET 2026
