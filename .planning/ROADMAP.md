@@ -36,7 +36,7 @@ Implement Spearman 2017 influence-based pitch control algorithm.
 
 ---
 
-### Phase 3: App Integration ⬜
+### Phase 3: App Integration ✅
 **Directory:** `.planning/phases/03-app-integration/`
 
 Integrate pitch control visualization into Streamlit app.
@@ -50,9 +50,11 @@ Integrate pitch control visualization into Streamlit app.
 
 **Output:** Modified `app.py`
 
+**Completed:** 2026-01-09
+
 ---
 
-### Phase 4: Documentation ⬜
+### Phase 4: Documentation ✅
 **Directory:** `.planning/phases/04-documentation/`
 
 Create technical documentation for the pitch control feature.
@@ -65,6 +67,8 @@ Create technical documentation for the pitch control feature.
 
 **Output:** `docs/technical/pitch_control.md`
 
+**Completed:** 2026-01-09
+
 ---
 
 ## Progress
@@ -73,10 +77,10 @@ Create technical documentation for the pitch control feature.
 |-------|--------|-------|-----------|
 | 1. Velocity Module | ✅ Complete | 1 | 1 |
 | 2. Pitch Control Module | ✅ Complete | 1 | 1 |
-| 3. App Integration | ⬜ Not Started | 0 | 0 |
-| 4. Documentation | ⬜ Not Started | 0 | 0 |
+| 3. App Integration | ✅ Complete | 1 | 1 |
+| 4. Documentation | ✅ Complete | 1 | 1 |
 
-**Milestone Progress:** 2/4 phases complete
+**Milestone Progress:** 4/4 phases complete ✅
 
 ---
 
