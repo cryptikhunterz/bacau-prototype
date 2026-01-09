@@ -24,6 +24,8 @@ from colors import BACKGROUND_COLOR
 from time_utils import frame_to_match_time
 from compactness import compute_ci, is_defending
 from shape_lines import get_outfield_positions
+from pitch_control import create_pitch_grid, compute_pitch_control
+from velocity import calculate_velocities, smooth_velocities, clamp_velocities
 
 # Game metadata for time conversion (Game 3821)
 GAME_METADATA = {
@@ -990,10 +992,37 @@ def draw_team_shape(ax, positions, is_home=True):
         pass
 
 
-def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True, possession=None, show_zones=False):
+def render_frame(frame_data, ball_pos=None, home_name="Home", away_name="Away", show_shapes=True, possession=None, show_zones=False,
+                 show_pitch_control=False, pitch_control_alpha=0.5,
+                 home_velocities=None, away_velocities=None):
     """Render a single frame."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
     fig.patch.set_facecolor(BACKGROUND_COLOR)
+
+    # Draw pitch control overlay if enabled
+    if show_pitch_control:
+        from matplotlib.colors import LinearSegmentedColormap
+
+        home_pos = frame_data.get('home', {})
+        away_pos = frame_data.get('away', {})
+
+        if home_pos and away_pos:
+            # Use provided velocities or default to zero
+            h_vel = home_velocities or {pid: (0.0, 0.0) for pid in home_pos}
+            a_vel = away_velocities or {pid: (0.0, 0.0) for pid in away_pos}
+
+            # Compute pitch control
+            control = compute_pitch_control(home_pos, away_pos, h_vel, a_vel)
+            x_grid, y_grid = create_pitch_grid()
+
+            # Blue-white-red colormap (home=blue, contested=white, away=red)
+            colors = ['#e74c3c', '#FFFFFF', '#3498db']  # Red -> White -> Blue
+            cmap = LinearSegmentedColormap.from_list('pitch_control', colors)
+
+            # Draw on both axes
+            for ax_current in [ax1, ax2]:
+                ax_current.pcolormesh(x_grid, y_grid, control, cmap=cmap,
+                                     vmin=0, vmax=1, alpha=pitch_control_alpha, zorder=1)
 
     for ax, team_key, team_name in [(ax1, 'home', home_name), (ax2, 'away', away_name)]:
         draw_pitch(ax, show_zones=show_zones)
@@ -1078,6 +1107,10 @@ if 'zone_stats_printed' not in st.session_state:
     events = load_events()
     if events:
         print_zone_stats_summary(events)
+if 'prev_frame_data' not in st.session_state:
+    st.session_state.prev_frame_data = None
+if 'velocities' not in st.session_state:
+    st.session_state.velocities = {'home': {}, 'away': {}}
 
 def add_debug(msg):
     """Add message to debug trace."""
@@ -1128,6 +1161,11 @@ with st.sidebar:
     show_shapes = st.checkbox("Show team shapes", value=True)
     show_ball = st.checkbox("Show ball", value=True)
     show_zones = st.checkbox("Show tactical zones", value=True)
+    show_pitch_control = st.checkbox("Show pitch control", value=False)
+    if show_pitch_control:
+        pitch_control_alpha = st.slider("Pitch control opacity", 0.1, 0.9, 0.5, 0.1)
+    else:
+        pitch_control_alpha = 0.5
 
     # Team names (editable, with real names as default)
     home_name = st.text_input("Home Team", default_home)
@@ -1220,11 +1258,32 @@ with tab_shape:
         frame_data = extract_positions(frame)
         ball_pos = get_ball_position(frame) if show_ball else None
         possession = get_possession(frame)
+
+        # Calculate velocities for pitch control
+        if show_pitch_control and st.session_state.prev_frame_data is not None:
+            fps = 29.97
+            for team in ['home', 'away']:
+                prev_pos = st.session_state.prev_frame_data.get(team, {})
+                curr_pos = frame_data.get(team, {})
+                if prev_pos and curr_pos:
+                    raw_vel = calculate_velocities(curr_pos, prev_pos, fps=fps)
+                    prev_vel = st.session_state.velocities.get(team, {})
+                    smoothed = smooth_velocities(raw_vel, prev_vel, alpha=0.3)
+                    st.session_state.velocities[team] = clamp_velocities(smoothed, max_speed=13.0)
+                else:
+                    st.session_state.velocities[team] = {pid: (0.0, 0.0) for pid in curr_pos}
+
+        # Store current frame for next iteration
+        st.session_state.prev_frame_data = frame_data
+
         t1 = time.perf_counter()
         extract_ms = (t1 - t0) * 1000
 
         # Time: Matplotlib render
-        fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession, show_zones)
+        fig = render_frame(frame_data, ball_pos, home_name, away_name, show_shapes, possession, show_zones,
+                           show_pitch_control, pitch_control_alpha,
+                           st.session_state.velocities.get('home'),
+                           st.session_state.velocities.get('away'))
         t2 = time.perf_counter()
         render_ms = (t2 - t1) * 1000
 
